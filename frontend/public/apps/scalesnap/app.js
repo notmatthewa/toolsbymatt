@@ -141,28 +141,35 @@
     e.preventDefault();
     dropZone.classList.remove('drag-over');
     const f = e.dataTransfer.files[0];
-    if (f && f.type.startsWith('image/')) loadImage(f);
+    if (f && (f.type.startsWith('image/') || /\.(heic|heif|jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(f.name))) loadImage(f);
   });
 
   function loadImage(file) {
-    const r = new FileReader();
-    r.onload = e => {
-      img = new Image();
-      img.onload = () => {
-        resetState();
-        dropZone.classList.add('hidden');
-        header.classList.add('hidden');
-        workspace.classList.remove('hidden');
-        // Wait a frame for layout to compute before sizing canvas
-        requestAnimationFrame(() => {
+    // Use createObjectURL — faster than FileReader, handles HEIC on iOS
+    const url = URL.createObjectURL(file);
+    img = new Image();
+    img.onload = () => {
+      resetState();
+      dropZone.classList.add('hidden');
+      header.classList.add('hidden');
+      workspace.classList.remove('hidden');
+      // Wait for layout to settle (double-rAF for mobile)
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        sizeCanvas();
+        if (canvasWrap.clientHeight < 10) {
+          // Fallback: force a minimum height if flex hasn't resolved
+          canvasWrap.style.minHeight = '300px';
           sizeCanvas();
-          fitView();
-          draw();
-        });
-      };
-      img.src = e.target.result;
+        }
+        fitView();
+        draw();
+      }));
     };
-    r.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      alert('Could not load this image. Try a JPEG or PNG.');
+    };
+    img.src = url;
   }
 
   function resetState() {
