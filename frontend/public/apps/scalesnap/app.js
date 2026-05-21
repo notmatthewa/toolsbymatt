@@ -133,7 +133,7 @@
   // ================================================================
   //  IMAGE LOADING
   // ================================================================
-  dropZone.addEventListener('click', () => fileInput.click());
+  // Drop zone is a <label for="file-input"> — no JS click needed (iOS Safari blocks programmatic .click() on file inputs)
   fileInput.addEventListener('change', e => { if (e.target.files[0]) loadImage(e.target.files[0]); });
   dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
   dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
@@ -144,20 +144,26 @@
     if (f && (f.type.startsWith('image/') || /\.(heic|heif|jpg|jpeg|png|webp|gif|bmp|svg)$/i.test(f.name))) loadImage(f);
   });
 
+  function showLoading(on) {
+    dropZone.querySelector('.drop-icon').classList.toggle('hidden', on);
+    dropZone.querySelector('.drop-spinner').classList.toggle('hidden', !on);
+    dropZone.querySelector('.drop-text').classList.toggle('hidden', on);
+    dropZone.querySelector('.loading-text').classList.toggle('hidden', !on);
+  }
+
   function loadImage(file) {
-    // Use createObjectURL — faster than FileReader, handles HEIC on iOS
+    showLoading(true);
     const url = URL.createObjectURL(file);
     img = new Image();
     img.onload = () => {
+      showLoading(false);
       resetState();
       dropZone.classList.add('hidden');
       header.classList.add('hidden');
       workspace.classList.remove('hidden');
-      // Wait for layout to settle (double-rAF for mobile)
       requestAnimationFrame(() => requestAnimationFrame(() => {
         sizeCanvas();
         if (canvasWrap.clientHeight < 10) {
-          // Fallback: force a minimum height if flex hasn't resolved
           canvasWrap.style.minHeight = '300px';
           sizeCanvas();
         }
@@ -167,6 +173,7 @@
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
+      showLoading(false);
       alert('Could not load this image. Try a JPEG or PNG.');
     };
     img.src = url;

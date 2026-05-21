@@ -53,6 +53,7 @@ header h1 {
 
 /* Drop zone */
 .drop-zone {
+  display: block;
   border: 2px dashed var(--border);
   border-radius: var(--radius);
   padding: 64px 24px;
@@ -66,8 +67,12 @@ header h1 {
   border-color: var(--accent);
   background: rgba(108, 140, 255, 0.04);
 }
-.drop-content svg { color: var(--text-dim); margin-bottom: 12px; }
+.drop-content svg.drop-icon { color: var(--text-dim); margin-bottom: 12px; }
 .drop-content p { color: var(--text-dim); font-size: 15px; }
+.drop-spinner { margin-bottom: 12px; }
+.spinner-arc { animation: spin 0.8s linear infinite; transform-origin: 50% 50%; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: var(--text-dim); font-size: 14px; }
 .file-label {
   color: var(--accent);
   cursor: pointer;

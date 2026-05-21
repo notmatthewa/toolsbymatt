@@ -13,17 +13,24 @@
       <p class="subtitle">Measure anything in a photo</p>
     </header>
 
-    <div id="drop-zone" class="drop-zone">
+    <input type="file" id="file-input" accept="image/*,.heic,.heif" hidden>
+    <label id="drop-zone" class="drop-zone" for="file-input">
       <div class="drop-content">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <svg class="drop-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
           <polyline points="17 8 12 3 7 8"/>
           <line x1="12" y1="3" x2="12" y2="15"/>
         </svg>
-        <p>Drop an image here or <label for="file-input" class="file-label">browse</label></p>
-        <input type="file" id="file-input" accept="image/*,.heic,.heif" hidden>
+        <div class="drop-spinner hidden">
+          <svg width="36" height="36" viewBox="0 0 36 36">
+            <circle cx="18" cy="18" r="15" fill="none" stroke="var(--border)" stroke-width="3"/>
+            <circle cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-dasharray="70 30" class="spinner-arc"/>
+          </svg>
+        </div>
+        <p class="drop-text">Drop an image here or <span class="file-label">browse</span></p>
+        <p class="loading-text hidden">Loading image...</p>
       </div>
-    </div>
+    </label>
 
     <div id="workspace" class="workspace hidden">
       <div class="toolbar">
