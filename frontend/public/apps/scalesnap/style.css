@@ -29,8 +29,8 @@ body {
 #app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  height: 100dvh;
+  height: calc(100vh - 44px);
+  height: calc(100dvh - 44px);
   max-width: 1100px;
   margin: 0 auto;
   padding: 0 20px;
