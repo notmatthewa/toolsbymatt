@@ -153,9 +153,12 @@
         dropZone.classList.add('hidden');
         header.classList.add('hidden');
         workspace.classList.remove('hidden');
-        sizeCanvas();
-        fitView();
-        draw();
+        // Wait a frame for layout to compute before sizing canvas
+        requestAnimationFrame(() => {
+          sizeCanvas();
+          fitView();
+          draw();
+        });
       };
       img.src = e.target.result;
     };
