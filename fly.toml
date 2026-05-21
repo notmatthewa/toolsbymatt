@@ -1,3 +1,8 @@
+# fly.toml app configuration file generated for toolsbymatt on 2026-05-21T14:50:53-05:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'toolsbymatt'
 primary_region = 'ord'
 
@@ -12,5 +17,5 @@ primary_region = 'ord'
 
 [[vm]]
   memory = '256mb'
-  cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 256
