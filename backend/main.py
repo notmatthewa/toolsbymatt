@@ -2,10 +2,13 @@ import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+STATIC_DIR = Path(__file__).parent / "static"
 
 
 class AppEntry(BaseModel):
@@ -41,6 +44,8 @@ app.add_middleware(
 )
 
 
+# ---------- API ----------
+
 @app.get("/api/apps", response_model=AppsResponse)
 async def get_apps():
     return AppsResponse(apps=app.state.apps)
@@ -60,7 +65,29 @@ async def search_apps(q: str = Query("", min_length=0)):
     return AppsResponse(apps=results)
 
 
-# Serve ScaleSnap as a static sub-app
-image_ref_path = Path(__file__).parent.parent.parent / "ImageRef"
-if image_ref_path.is_dir():
-    app.mount("/apps/scalesnap", StaticFiles(directory=str(image_ref_path), html=True), name="scalesnap")
+# ---------- Static files (production: built frontend served by FastAPI) ----------
+
+# Sub-apps (e.g. ScaleSnap)
+scalesnap_dir = STATIC_DIR / "apps" / "scalesnap"
+if scalesnap_dir.is_dir():
+    app.mount("/apps/scalesnap", StaticFiles(directory=str(scalesnap_dir), html=True), name="scalesnap")
+
+# React build assets (/assets/*)
+assets_dir = STATIC_DIR / "assets"
+if assets_dir.is_dir():
+    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+# SPA fallback — serve index.html for any non-API, non-static path
+index_html = STATIC_DIR / "index.html"
+
+
+@app.get("/{path:path}")
+async def spa_fallback(request: Request, path: str):
+    # Try to serve the exact file first (e.g. favicon.ico, data/apps.json)
+    file_path = STATIC_DIR / path
+    if path and file_path.is_file():
+        return FileResponse(file_path)
+    # Otherwise serve the React SPA
+    if index_html.is_file():
+        return FileResponse(index_html)
+    return {"detail": "Not found — run `make build` to generate frontend"}

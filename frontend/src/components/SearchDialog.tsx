@@ -19,10 +19,9 @@ function getIcon(name: string) {
 interface SearchDialogProps {
   open: boolean;
   onClose: () => void;
-  onSearch: (query: string) => Promise<AppEntry[]>;
 }
 
-export default function SearchDialog({ open, onClose, onSearch }: SearchDialogProps) {
+export default function SearchDialog({ open, onClose }: SearchDialogProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AppEntry[]>([]);
   const [selected, setSelected] = useState(0);
@@ -34,21 +33,28 @@ export default function SearchDialog({ open, onClose, onSearch }: SearchDialogPr
     if (open) {
       setQuery("");
       setSelected(0);
-      onSearch("").then(setResults);
+      fetch("/api/apps")
+        .then((r) => r.json())
+        .then((data) => setResults(data.apps));
     }
-  }, [open, onSearch]);
+  }, [open]);
 
   // Debounced search
   useEffect(() => {
     clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      onSearch(query).then((r) => {
-        setResults(r);
-        setSelected(0);
-      });
-    }, 80);
+      const url = query
+        ? `/api/apps/search?q=${encodeURIComponent(query)}`
+        : "/api/apps";
+      fetch(url)
+        .then((r) => r.json())
+        .then((data) => {
+          setResults(data.apps);
+          setSelected(0);
+        });
+    }, 120);
     return () => clearTimeout(timerRef.current);
-  }, [query, onSearch]);
+  }, [query]);
 
   // Scroll selected item into view
   useEffect(() => {
@@ -97,7 +103,6 @@ export default function SearchDialog({ open, onClose, onSearch }: SearchDialogPr
         },
       }}
     >
-      {/* Search input */}
       <Box
         sx={{
           display: "flex",
@@ -136,7 +141,6 @@ export default function SearchDialog({ open, onClose, onSearch }: SearchDialogPr
         </Box>
       </Box>
 
-      {/* Results */}
       <Box ref={listRef} sx={{ overflow: "auto", maxHeight: "calc(70vh - 64px)" }}>
         {results.length === 0 ? (
           <Typography

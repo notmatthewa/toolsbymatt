@@ -1,22 +1,24 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Box, Container, Typography, Grid } from "@mui/material";
 import NavBar from "./components/NavBar";
 import SearchDialog from "./components/SearchDialog";
 import AppCard from "./components/AppCard";
-import { useApps } from "./useApps";
+import type { AppEntry } from "./types";
 
 export default function App() {
-  const { apps, search } = useApps();
+  const [apps, setApps] = useState<AppEntry[]>([]);
   const [searchOpen, setSearchOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/apps")
+      .then((r) => r.json())
+      .then((data) => setApps(data.apps));
+  }, []);
 
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
       <NavBar onSearchOpen={() => setSearchOpen(true)} />
-      <SearchDialog
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSearch={search}
-      />
+      <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
       <Container maxWidth="lg" sx={{ py: 6 }}>
         <Typography variant="h4" sx={{ mb: 1 }}>
           Apps
