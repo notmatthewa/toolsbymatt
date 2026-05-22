@@ -230,22 +230,27 @@ async def yt_download(
     tmp_dir = tempfile.mkdtemp()
     out_template = os.path.join(tmp_dir, "%(title)s.%(ext)s")
 
+    base_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "outtmpl": out_template,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+    }
+
     if format == "mp3":
         opts = {
-            "quiet": True,
-            "no_warnings": True,
+            **base_opts,
             "format": "bestaudio/best",
-            "outtmpl": out_template,
             "postprocessors": [
                 {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
             ],
         }
     else:
         opts = {
-            "quiet": True,
-            "no_warnings": True,
+            **base_opts,
             "format": f"bestvideo[height<={quality}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]",
-            "outtmpl": out_template,
             "merge_output_format": "mp4",
             "postprocessors": [
                 {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
@@ -295,8 +300,11 @@ async def yt_waveform(url: str = Query(...), bars: int = Query(200, ge=50, le=50
     opts = {
         "quiet": True,
         "no_warnings": True,
-        "format": "bestaudio/best",
+        "format": "bestaudio[filesize<20M]/bestaudio/best",
         "outtmpl": out_template,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "0"}
         ],
