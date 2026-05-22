@@ -3,6 +3,10 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -71,16 +75,43 @@ async def get_apps():
     return AppsResponse(apps=app.state.apps)
 
 
+# Bidirectional synonym groups — any word in a group matches any other
+_SYNONYM_GROUPS = [
+    {"food", "meal", "restaurant", "dining", "eat", "lunch", "dinner"},
+    {"photo", "picture", "image", "camera", "pic"},
+    {"measure", "ruler", "scale", "size", "dimension", "length", "distance"},
+    {"random", "spin", "wheel", "pick", "choose", "roulette"},
+    {"location", "map", "place", "nearby", "local", "drive"},
+    {"perspective", "3d", "angle", "depth"},
+]
+
+_SYNONYMS: dict[str, set[str]] = {}
+for group in _SYNONYM_GROUPS:
+    for word in group:
+        _SYNONYMS.setdefault(word, set()).update(group)
+
+
+def _expand_query(query: str) -> set[str]:
+    """Return the query plus any synonyms for words in it."""
+    terms = {query}
+    for word in query.split():
+        terms.update(_SYNONYMS.get(word, set()))
+    return terms
+
+
 @app.get("/api/apps/search", response_model=AppsResponse)
 async def search_apps(q: str = Query("", min_length=0)):
     if not q:
         return AppsResponse(apps=app.state.apps)
-    query = q.lower()
+    terms = _expand_query(q.lower())
     results = [
         a for a in app.state.apps
-        if query in a.name.lower()
-        or query in a.description.lower()
-        or any(query in tag for tag in a.tags)
+        if any(
+            t in a.name.lower()
+            or t in a.description.lower()
+            or any(t in tag for tag in a.tags)
+            for t in terms
+        )
     ]
     return AppsResponse(apps=results)
 
