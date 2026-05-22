@@ -50,12 +50,14 @@ function extractVideoId(input: string): string | null {
   return null;
 }
 
-// Timeline with waveform, loop region handles, playhead, level meter
+const ORANGE = "#fb923c";
+const ORANGE_ACTIVE = "#f97316";
+
 function Timeline({
   currentTime,
   duration,
-  loopA,
-  loopB,
+  loopStart,
+  loopEnd,
   looping,
   color,
   waveform,
@@ -65,14 +67,14 @@ function Timeline({
 }: {
   currentTime: number;
   duration: number;
-  loopA: number | null;
-  loopB: number | null;
+  loopStart: number;
+  loopEnd: number;
   looping: boolean;
   color: string;
   waveform: number[] | null;
   audioLevel: number;
   onSeek: (t: number) => void;
-  onLoopChange: (a: number | null, b: number | null) => void;
+  onLoopChange: (start: number, end: number) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<"seek" | "loopA" | "loopB" | null>(null);
@@ -96,19 +98,15 @@ function Timeline({
       const rect = el.getBoundingClientRect();
 
       // Check loop handles (within 12px)
-      if (loopA !== null) {
-        const ax = rect.left + (loopA / duration) * rect.width;
-        if (Math.abs(e.clientX - ax) < 12) { setDragging("loopA"); return; }
-      }
-      if (loopB !== null) {
-        const bx = rect.left + (loopB / duration) * rect.width;
-        if (Math.abs(e.clientX - bx) < 12) { setDragging("loopB"); return; }
-      }
+      const axPx = (loopStart / duration) * rect.width + rect.left;
+      const bxPx = (loopEnd / duration) * rect.width + rect.left;
+      if (Math.abs(e.clientX - axPx) < 12) { setDragging("loopA"); return; }
+      if (Math.abs(e.clientX - bxPx) < 12) { setDragging("loopB"); return; }
 
       setDragging("seek");
       onSeek(getTimeFromX(e.clientX));
     },
-    [duration, loopA, loopB, onSeek, getTimeFromX]
+    [duration, loopStart, loopEnd, onSeek, getTimeFromX]
   );
 
   const handlePointerMove = useCallback(
@@ -116,19 +114,18 @@ function Timeline({
       if (!dragging) return;
       const t = getTimeFromX(e.clientX);
       if (dragging === "seek") onSeek(t);
-      else if (dragging === "loopA") onLoopChange(Math.min(t, (loopB ?? duration) - 0.5), loopB);
-      else if (dragging === "loopB") onLoopChange(loopA, Math.max(t, (loopA ?? 0) + 0.5));
+      else if (dragging === "loopA") onLoopChange(Math.min(t, loopEnd - 0.5), loopEnd);
+      else if (dragging === "loopB") onLoopChange(loopStart, Math.max(t, loopStart + 0.5));
     },
-    [dragging, getTimeFromX, onSeek, onLoopChange, loopA, loopB, duration]
+    [dragging, getTimeFromX, onSeek, onLoopChange, loopStart, loopEnd]
   );
 
   const handlePointerUp = useCallback(() => setDragging(null), []);
 
   const progressPct = duration ? (currentTime / duration) * 100 : 0;
-  const loopAPct = loopA !== null && duration ? (loopA / duration) * 100 : null;
-  const loopBPct = loopB !== null && duration ? (loopB / duration) * 100 : null;
+  const startPct = duration ? (loopStart / duration) * 100 : 0;
+  const endPct = duration ? (loopEnd / duration) * 100 : 100;
 
-  // Downsample waveform to visible bar count
   const BARS = 100;
   const bars = waveform
     ? Array.from({ length: BARS }, (_, i) => {
@@ -141,6 +138,9 @@ function Timeline({
         return max;
       })
     : null;
+
+  const handleColor = looping ? ORANGE_ACTIVE : ORANGE;
+  const regionBg = looping ? "rgba(251,146,60,0.2)" : "rgba(251,146,60,0.08)";
 
   return (
     <Box sx={{ px: 0.5, py: 0.5, userSelect: "none" }}>
@@ -192,57 +192,51 @@ function Timeline({
           })}
         </Box>
 
-        {/* Loop region overlay */}
-        {loopAPct !== null && loopBPct !== null && (
-          <Box
-            sx={{
-              position: "absolute",
-              top: 0, bottom: 0,
-              left: `${loopAPct}%`,
-              width: `${loopBPct - loopAPct}%`,
-              bgcolor: looping ? `${color}30` : "rgba(255,255,255,0.06)",
-              pointerEvents: "none",
-            }}
-          />
-        )}
+        {/* Loop region overlay — always visible */}
+        <Box
+          sx={{
+            position: "absolute",
+            top: 0, bottom: 0,
+            left: `${startPct}%`,
+            width: `${endPct - startPct}%`,
+            bgcolor: regionBg,
+            borderLeft: `2px solid ${handleColor}`,
+            borderRight: `2px solid ${handleColor}`,
+            pointerEvents: "none",
+          }}
+        />
 
-        {/* Loop handle A */}
-        {loopAPct !== null && (
-          <Box
-            sx={{
-              position: "absolute", top: 0, bottom: 0,
-              left: `${loopAPct}%`, width: 18, ml: "-9px",
-              cursor: "ew-resize", display: "flex", alignItems: "center",
-              justifyContent: "center", zIndex: 3,
-            }}
-          >
-            <Box sx={{
-              width: 6, height: "70%", borderRadius: 1,
-              bgcolor: looping ? color : "rgba(255,255,255,0.6)",
-              border: `1px solid ${looping ? color : "rgba(255,255,255,0.3)"}`,
-              boxShadow: looping ? `0 0 6px ${color}` : "none",
-            }} />
-          </Box>
-        )}
+        {/* Loop handle A (left) */}
+        <Box
+          sx={{
+            position: "absolute", top: 0, bottom: 0,
+            left: `${startPct}%`, width: 20, ml: "-10px",
+            cursor: "ew-resize", display: "flex", alignItems: "center",
+            justifyContent: "center", zIndex: 3,
+          }}
+        >
+          <Box sx={{
+            width: 6, height: "60%", borderRadius: 1,
+            bgcolor: handleColor,
+            boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
+          }} />
+        </Box>
 
-        {/* Loop handle B */}
-        {loopBPct !== null && (
-          <Box
-            sx={{
-              position: "absolute", top: 0, bottom: 0,
-              left: `${loopBPct}%`, width: 18, ml: "-9px",
-              cursor: "ew-resize", display: "flex", alignItems: "center",
-              justifyContent: "center", zIndex: 3,
-            }}
-          >
-            <Box sx={{
-              width: 6, height: "70%", borderRadius: 1,
-              bgcolor: looping ? color : "rgba(255,255,255,0.6)",
-              border: `1px solid ${looping ? color : "rgba(255,255,255,0.3)"}`,
-              boxShadow: looping ? `0 0 6px ${color}` : "none",
-            }} />
-          </Box>
-        )}
+        {/* Loop handle B (right) */}
+        <Box
+          sx={{
+            position: "absolute", top: 0, bottom: 0,
+            left: `${endPct}%`, width: 20, ml: "-10px",
+            cursor: "ew-resize", display: "flex", alignItems: "center",
+            justifyContent: "center", zIndex: 3,
+          }}
+        >
+          <Box sx={{
+            width: 6, height: "60%", borderRadius: 1,
+            bgcolor: handleColor,
+            boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
+          }} />
+        </Box>
 
         {/* Playhead */}
         <Box sx={{
@@ -270,11 +264,9 @@ function Timeline({
             },
           }}
         />
-        {loopA !== null && loopB !== null && (
-          <Typography variant="caption" sx={{ fontSize: 10, color: looping ? color : "text.secondary" }}>
-            {fmt(loopA)}→{fmt(loopB)}
-          </Typography>
-        )}
+        <Typography variant="caption" sx={{ fontSize: 10, color: ORANGE }}>
+          {fmt(loopStart)}→{fmt(loopEnd)}
+        </Typography>
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, minWidth: 32, textAlign: "right" }}>
           {fmt(duration)}
         </Typography>
@@ -285,59 +277,53 @@ function Timeline({
 
 export default function Deck({ label, color, videoRef, state, controls, effectiveVolume, registerCallbacks }: DeckProps) {
   const [urlInput, setUrlInput] = useState("");
-  const [loopA, setLoopA] = useState<number | null>(null);
-  const [loopB, setLoopB] = useState<number | null>(null);
+  const [loopStart, setLoopStart] = useState(0);
+  const [loopEnd, setLoopEnd] = useState(0);
   const [looping, setLooping] = useState(false);
   const [cues, setCues] = useState<(number | null)[]>([null, null, null, null]);
-  const loopRef = useRef({ looping, loopA, loopB });
+  const loopRef = useRef({ looping, loopStart, loopEnd });
   const effectiveVolumeRef = useRef(effectiveVolume);
 
   useEffect(() => {
-    loopRef.current = { looping, loopA, loopB };
-  }, [looping, loopA, loopB]);
+    loopRef.current = { looping, loopStart, loopEnd };
+  }, [looping, loopStart, loopEnd]);
+
+  // Initialize loop end to full duration when video loads
+  useEffect(() => {
+    if (state.duration > 0 && loopEnd === 0) {
+      setLoopEnd(state.duration);
+    }
+  }, [state.duration, loopEnd]);
 
   useEffect(() => {
     effectiveVolumeRef.current = effectiveVolume;
     controls.setVolume(effectiveVolume);
   }, [effectiveVolume]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Loop enforcement via ref (no deps on controls)
+  // Loop enforcement
   useEffect(() => {
-    const { looping, loopA, loopB } = loopRef.current;
-    if (looping && loopA !== null && loopB !== null && state.currentTime >= loopB) {
-      controls.seekTo(loopA);
+    const { looping, loopStart, loopEnd } = loopRef.current;
+    if (looping && loopEnd > loopStart && state.currentTime >= loopEnd) {
+      controls.seekTo(loopStart);
     }
   }, [state.currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = () => {
     const id = extractVideoId(urlInput);
     if (!id) return;
-    setLoopA(null);
-    setLoopB(null);
+    setLoopStart(0);
+    setLoopEnd(0);
     setLooping(false);
     setCues([null, null, null, null]);
     controls.loadVideo(urlInput);
   };
 
-  const handleLoopChange = useCallback((a: number | null, b: number | null) => {
-    setLoopA(a);
-    setLoopB(b);
+  const handleLoopChange = useCallback((start: number, end: number) => {
+    setLoopStart(start);
+    setLoopEnd(end);
   }, []);
 
-  const setLoopFromCurrent = () => {
-    if (loopA === null) {
-      setLoopA(state.currentTime);
-    } else if (loopB === null) {
-      if (state.currentTime > loopA) {
-        setLoopB(state.currentTime);
-        setLooping(true);
-      }
-    } else {
-      setLoopA(null);
-      setLoopB(null);
-      setLooping(false);
-    }
-  };
+  const toggleLooping = () => setLooping(!looping);
 
   const toggleCue = (i: number) => {
     const c = [...cues];
@@ -357,8 +343,8 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
 
   // Expose callbacks for keyboard shortcuts
   useEffect(() => {
-    registerCallbacks?.(toggleCue, setLoopFromCurrent);
-  }); // intentionally no deps — always register latest closures
+    registerCallbacks?.(toggleCue, toggleLooping);
+  }); // intentionally no deps
 
   return (
     <Paper
@@ -439,12 +425,12 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         </Typography>
       )}
 
-      {/* Timeline */}
+      {/* Timeline with always-visible loop handles */}
       <Timeline
         currentTime={state.currentTime}
         duration={state.duration}
-        loopA={loopA}
-        loopB={loopB}
+        loopStart={loopStart}
+        loopEnd={loopEnd || state.duration}
         looping={looping}
         color={color}
         waveform={state.waveform}
@@ -453,7 +439,7 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         onLoopChange={handleLoopChange}
       />
 
-      {/* Transport */}
+      {/* Transport + Loop toggle */}
       <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
         <IconButton
           size="small"
@@ -466,58 +452,22 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         <IconButton size="small" onClick={() => controls.seekTo(0)} sx={{ color: "text.secondary" }}>
           <ReplayIcon fontSize="small" />
         </IconButton>
-      </Stack>
-
-      {/* Loop controls */}
-      <Stack direction="row" spacing={0.5} alignItems="center">
-        <Button
-          size="small"
-          variant={loopA !== null ? "contained" : "outlined"}
-          onClick={() => setLoopA(loopA !== null ? null : state.currentTime)}
-          sx={{
-            minWidth: 48, fontSize: 11, px: 1,
-            bgcolor: loopA !== null ? color : undefined,
-            borderColor: color,
-            "&:hover": { bgcolor: loopA !== null ? color : undefined, opacity: 0.85 },
-          }}
-        >
-          IN {loopA !== null ? fmt(loopA) : ""}
-        </Button>
-        <Button
-          size="small"
-          variant={loopB !== null ? "contained" : "outlined"}
-          onClick={() => setLoopB(loopB !== null ? null : state.currentTime)}
-          sx={{
-            minWidth: 48, fontSize: 11, px: 1,
-            bgcolor: loopB !== null ? color : undefined,
-            borderColor: color,
-            "&:hover": { bgcolor: loopB !== null ? color : undefined, opacity: 0.85 },
-          }}
-        >
-          OUT {loopB !== null ? fmt(loopB) : ""}
-        </Button>
+        <Box sx={{ width: 8 }} />
         <Button
           size="small"
           variant={looping ? "contained" : "outlined"}
-          color={looping ? "success" : "inherit"}
-          disabled={loopA === null || loopB === null}
-          onClick={() => setLooping(!looping)}
           startIcon={<RepeatIcon sx={{ fontSize: 14 }} />}
-          sx={{ fontSize: 11, px: 1.5 }}
+          onClick={toggleLooping}
+          sx={{
+            fontSize: 11, px: 1.5,
+            bgcolor: looping ? ORANGE_ACTIVE : undefined,
+            borderColor: ORANGE,
+            color: looping ? "#000" : ORANGE,
+            "&:hover": { bgcolor: looping ? ORANGE : `${ORANGE}22` },
+          }}
         >
           {looping ? "LOOP ON" : "LOOP"}
         </Button>
-        {loopA !== null && loopB !== null && (
-          <Button
-            size="small"
-            variant="outlined"
-            color="inherit"
-            onClick={() => { setLoopA(null); setLoopB(null); setLooping(false); }}
-            sx={{ fontSize: 10, px: 1, minWidth: 0, color: "text.secondary" }}
-          >
-            Clear
-          </Button>
-        )}
       </Stack>
 
       {/* Speed */}
