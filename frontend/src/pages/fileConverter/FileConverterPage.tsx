@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Box,
   Button,
@@ -14,36 +14,46 @@ import {
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import DownloadIcon from "@mui/icons-material/Download";
 
-const ACCEPTED = ".pptx,.ppt,.pdf,.png,.jpg,.jpeg,.webp,.gif,.bmp,.tiff,.heic";
-
-function getOutputOptions(ext: string): string[] {
-  if (["pptx", "ppt"].includes(ext)) return ["images"];
-  if (ext === "pdf") return ["images"];
-  if (["png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic"].includes(ext))
-    return ["png", "jpg"];
-  return ["images"];
-}
+const LABELS: Record<string, string> = {
+  images: "Extract Images",
+  png: "PNG",
+  jpg: "JPG",
+  webp: "WebP",
+  pdf: "PDF",
+};
 
 export default function FileConverterPage() {
   const [file, setFile] = useState<File | null>(null);
-  const [target, setTarget] = useState("images");
+  const [options, setOptions] = useState<string[]>([]);
+  const [target, setTarget] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [resultUrl, setResultUrl] = useState<string | null>(null);
   const [resultName, setResultName] = useState("");
 
-  const ext = file?.name.split(".").pop()?.toLowerCase() ?? "";
-  const options = file ? getOutputOptions(ext) : [];
+  // Query available formats when file changes
+  useEffect(() => {
+    if (!file) {
+      setOptions([]);
+      return;
+    }
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    fetch(`/api/convert/formats?ext=${encodeURIComponent(ext)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        setOptions(data.options || []);
+        setTarget(data.options?.[0] || "");
+      })
+      .catch(() => {
+        setOptions([]);
+        setError("Could not determine conversion options");
+      });
+  }, [file]);
 
   const handleFile = useCallback((f: File | null) => {
     setFile(f);
     setError("");
     setResultUrl(null);
-    if (f) {
-      const e = f.name.split(".").pop()?.toLowerCase() ?? "";
-      const opts = getOutputOptions(e);
-      setTarget(opts[0]);
-    }
   }, []);
 
   const convert = async () => {
@@ -90,7 +100,8 @@ export default function FileConverterPage() {
         File Converter
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Extract images from PowerPoint/PDF, or convert between image formats
+        Convert documents and images between formats. Extract images from
+        PowerPoint, Word, and PDF files.
       </Typography>
 
       {/* Drop zone */}
@@ -115,7 +126,6 @@ export default function FileConverterPage() {
         onClick={() => {
           const input = document.createElement("input");
           input.type = "file";
-          input.accept = ACCEPTED;
           input.onchange = () => {
             if (input.files?.[0]) handleFile(input.files[0]);
           };
@@ -136,7 +146,7 @@ export default function FileConverterPage() {
           </Stack>
         ) : (
           <Typography color="text.secondary">
-            Drop a file here or click to browse
+            Drop any file here or click to browse
           </Typography>
         )}
       </Paper>
@@ -145,7 +155,11 @@ export default function FileConverterPage() {
       {file && options.length > 0 && (
         <Stack spacing={2} sx={{ mb: 3 }}>
           <Box>
-            <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: "block" }}>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mb: 0.5, display: "block" }}
+            >
               Convert to
             </Typography>
             <ToggleButtonGroup
@@ -156,7 +170,7 @@ export default function FileConverterPage() {
             >
               {options.map((opt) => (
                 <ToggleButton key={opt} value={opt}>
-                  {opt === "images" ? "Extract Images" : opt.toUpperCase()}
+                  {LABELS[opt] || opt.toUpperCase()}
                 </ToggleButton>
               ))}
             </ToggleButtonGroup>
@@ -165,12 +179,20 @@ export default function FileConverterPage() {
           <Button
             variant="contained"
             onClick={convert}
-            disabled={loading}
-            startIcon={loading ? <CircularProgress size={18} color="inherit" /> : undefined}
+            disabled={loading || !target}
+            startIcon={
+              loading ? <CircularProgress size={18} color="inherit" /> : undefined
+            }
           >
             {loading ? "Converting..." : "Convert"}
           </Button>
         </Stack>
+      )}
+
+      {file && options.length === 0 && !error && (
+        <Typography color="text.secondary" variant="body2" sx={{ mb: 2 }}>
+          No conversions available for this file type.
+        </Typography>
       )}
 
       {error && (
@@ -193,8 +215,11 @@ export default function FileConverterPage() {
         </Paper>
       )}
 
-      <Typography variant="body2" color="text.secondary" sx={{ mt: 4 }}>
-        <strong>Supported inputs:</strong> PowerPoint (.pptx), PDF, images (PNG, JPG, WebP, GIF, HEIC)
+      <Typography variant="body2" color="text.secondary" sx={{ mt: 4, lineHeight: 1.8 }}>
+        <strong>Supported:</strong> PowerPoint (.pptx), Word (.docx), PDF,
+        images (PNG, JPG, WebP, GIF, HEIC), and with LibreOffice installed:
+        .doc, .odt, .rtf, .xls, .xlsx, .ods, .csv, .odp, Pages, Keynote,
+        Numbers, and more.
       </Typography>
     </Container>
   );

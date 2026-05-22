@@ -254,8 +254,45 @@ async def yt_download(
 
 # ---------- File Converter ----------
 
+import shutil
+import subprocess
+
+IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic", "svg"}
+
+# Extensions LibreOffice can convert to PDF
+_LIBREOFFICE_EXTS = {
+    "doc", "docx", "odt", "rtf", "txt",                     # word processors
+    "xls", "xlsx", "ods", "csv",                             # spreadsheets
+    "ppt", "pptx", "odp",                                    # presentations
+    "pages", "numbers", "key",                               # iWork (macOS LO)
+    "html", "htm",                                           # web
+}
+
+_SOFFICE = shutil.which("libreoffice") or shutil.which("soffice")
+
+
+def _get_output_options(ext: str) -> list[str]:
+    """Return available output formats for a given input extension."""
+    if ext in ("pptx", "ppt", "odp", "key"):
+        opts = ["images", "pdf"]
+        return opts
+    if ext in ("doc", "docx", "odt", "rtf", "txt", "pages", "html", "htm"):
+        opts = ["pdf", "images"]
+        return opts
+    if ext in ("xls", "xlsx", "ods", "csv", "numbers"):
+        opts = ["pdf", "images"]
+        return opts
+    if ext == "pdf":
+        return ["images"]
+    if ext in IMAGE_EXTS:
+        return ["png", "jpg", "webp", "pdf"]
+    # Unknown — try LibreOffice if available
+    if _SOFFICE:
+        return ["pdf", "images"]
+    return []
+
+
 def _extract_images_pptx(data: bytes) -> list[tuple[str, bytes]]:
-    """Extract all images from a PowerPoint file."""
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
 
@@ -279,24 +316,62 @@ def _extract_images_pptx(data: bytes) -> list[tuple[str, bytes]]:
     return images
 
 
-def _extract_images_pdf(data: bytes) -> list[tuple[str, bytes]]:
-    """Extract images from a PDF, or render pages as images."""
-    import fitz  # pymupdf
+def _extract_images_docx(data: bytes) -> list[tuple[str, bytes]]:
+    from docx import Document
 
+    doc = Document(io.BytesIO(data))
+    images: list[tuple[str, bytes]] = []
+    for i, rel in enumerate(doc.part.rels.values(), 1):
+        if "image" in rel.reltype:
+            blob = rel.target_part.blob
+            ct = rel.target_part.content_type
+            ext = ct.split("/")[-1].replace("jpeg", "jpg")
+            images.append((f"image_{i:03d}.{ext}", blob))
+    return images
+
+
+def _render_pdf_pages(data: bytes) -> list[tuple[str, bytes]]:
+    import fitz
     doc = fitz.open(stream=data, filetype="pdf")
     images: list[tuple[str, bytes]] = []
     for page_num, page in enumerate(doc, 1):
-        # Render page as PNG (ensures we always get output even if no embedded images)
         pix = page.get_pixmap(dpi=200)
         images.append((f"page{page_num:03d}.png", pix.tobytes("png")))
     return images
 
 
+def _convert_to_pdf_libreoffice(data: bytes, filename: str) -> bytes:
+    if not _SOFFICE:
+        raise RuntimeError("LibreOffice not installed")
+    tmp = tempfile.mkdtemp()
+    try:
+        src = os.path.join(tmp, filename)
+        with open(src, "wb") as f:
+            f.write(data)
+        subprocess.run(
+            [_SOFFICE, "--headless", "--convert-to", "pdf", "--outdir", tmp, src],
+            capture_output=True, timeout=60,
+        )
+        stem = filename.rsplit(".", 1)[0]
+        pdf_path = os.path.join(tmp, f"{stem}.pdf")
+        if not os.path.exists(pdf_path):
+            raise RuntimeError("LibreOffice conversion produced no output")
+        with open(pdf_path, "rb") as f:
+            return f.read()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _convert_image(data: bytes, target_format: str) -> tuple[str, bytes]:
-    """Convert an image to the target format."""
     from PIL import Image
 
     img = Image.open(io.BytesIO(data))
+    if target_format.lower() == "pdf":
+        if img.mode == "RGBA":
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PDF")
+        return "converted.pdf", buf.getvalue()
     if img.mode == "RGBA" and target_format.lower() in ("jpg", "jpeg"):
         img = img.convert("RGB")
     buf = io.BytesIO()
@@ -305,10 +380,16 @@ def _convert_image(data: bytes, target_format: str) -> tuple[str, bytes]:
     return f"converted.{target_format}", buf.getvalue()
 
 
+@app.get("/api/convert/formats")
+async def convert_formats(ext: str = Query(...)):
+    options = _get_output_options(ext.lower().lstrip("."))
+    return {"options": options}
+
+
 @app.post("/api/convert")
 async def convert_file(
     file: UploadFile = File(...),
-    target: str = Query("images", pattern="^(images|png|jpg|pdf)$"),
+    target: str = Query("images"),
 ):
     data = await file.read()
     filename = file.filename or "file"
@@ -316,18 +397,48 @@ async def convert_file(
 
     results: list[tuple[str, bytes]] = []
 
-    if ext in ("pptx", "ppt"):
-        results = await asyncio.to_thread(_extract_images_pptx, data)
-    elif ext == "pdf":
-        results = await asyncio.to_thread(_extract_images_pdf, data)
-    elif ext in ("png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic"):
-        if target in ("png", "jpg"):
+    # --- Images ---
+    if ext in IMAGE_EXTS:
+        if target in ("png", "jpg", "webp", "pdf"):
             name, converted = await asyncio.to_thread(_convert_image, data, target)
             results = [(name, converted)]
         else:
             results = [(filename, data)]
+
+    # --- PowerPoint (direct image extraction) ---
+    elif ext in ("pptx",) and target == "images":
+        results = await asyncio.to_thread(_extract_images_pptx, data)
+
+    # --- Word (direct image extraction) ---
+    elif ext in ("docx",) and target == "images":
+        results = await asyncio.to_thread(_extract_images_docx, data)
+
+    # --- PDF ---
+    elif ext == "pdf":
+        results = await asyncio.to_thread(_render_pdf_pages, data)
+
+    # --- Document → PDF (via LibreOffice) ---
+    elif target == "pdf" and ext in (_LIBREOFFICE_EXTS | {"pptx", "ppt", "docx", "doc"}):
+        pdf_data = await asyncio.to_thread(_convert_to_pdf_libreoffice, data, filename)
+        results = [(filename.rsplit(".", 1)[0] + ".pdf", pdf_data)]
+
+    # --- Document → images (LibreOffice → PDF → render pages) ---
+    elif target == "images" and (ext in _LIBREOFFICE_EXTS or ext in ("ppt", "doc", "odp", "key", "pages")):
+        pdf_data = await asyncio.to_thread(_convert_to_pdf_libreoffice, data, filename)
+        results = await asyncio.to_thread(_render_pdf_pages, pdf_data)
+
+    # --- Unknown: try LibreOffice as fallback ---
+    elif _SOFFICE:
+        try:
+            pdf_data = await asyncio.to_thread(_convert_to_pdf_libreoffice, data, filename)
+            if target == "images":
+                results = await asyncio.to_thread(_render_pdf_pages, pdf_data)
+            else:
+                results = [(filename.rsplit(".", 1)[0] + ".pdf", pdf_data)]
+        except Exception:
+            raise HTTPException(400, f"Cannot convert .{ext} files")
     else:
-        raise HTTPException(400, f"Unsupported file type: .{ext}")
+        raise HTTPException(400, f"Cannot convert .{ext} files (install LibreOffice for more formats)")
 
     if not results:
         raise HTTPException(400, "No content could be extracted")
@@ -354,7 +465,7 @@ async def convert_file(
     return Response(
         buf.getvalue(),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{stem}_images.zip"'},
+        headers={"Content-Disposition": f'attachment; filename="{stem}_converted.zip"'},
     )
 
 
