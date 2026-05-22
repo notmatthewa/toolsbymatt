@@ -160,7 +160,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
           : `https://www.youtube.com/watch?v=${videoId}`;
 
         const resp = await fetch(
-          `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=720`
+          `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=480`
         );
         if (!resp.ok) {
           const errData = await resp.json().catch(() => null);
@@ -217,17 +217,19 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
           video.volume = volumeRef.current / 100;
         }
 
-        // Generate waveform in background
-        setState((s) => ({ ...s, loadingProgress: "Generating waveform..." }));
-        try {
-          const waveformCtx = new AudioContext();
-          const arrayBuffer = await blob.arrayBuffer();
-          const audioBuffer = await waveformCtx.decodeAudioData(arrayBuffer);
-          const waveform = computeWaveform(audioBuffer, WAVEFORM_BARS);
-          setState((s) => ({ ...s, waveform }));
-          waveformCtx.close();
-        } catch {
-          // Waveform generation failed — not critical
+        // Generate waveform only for files under 50MB (avoids OOM on large videos)
+        if (blob.size < 50 * 1024 * 1024) {
+          setState((s) => ({ ...s, loadingProgress: "Generating waveform..." }));
+          try {
+            const waveformCtx = new AudioContext();
+            const arrayBuffer = await blob.arrayBuffer();
+            const audioBuffer = await waveformCtx.decodeAudioData(arrayBuffer);
+            const waveform = computeWaveform(audioBuffer, WAVEFORM_BARS);
+            setState((s) => ({ ...s, waveform }));
+            waveformCtx.close();
+          } catch {
+            // Waveform generation failed — not critical
+          }
         }
 
         setState((s) => ({ ...s, loading: false, loadingProgress: "" }));
