@@ -78,14 +78,61 @@ function Timeline({
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<"seek" | "loopA" | "loopB" | null>(null);
 
+  // Zoom: visible time window
+  const [viewStart, setViewStart] = useState(0);
+  const [viewEnd, setViewEnd] = useState(0);
+
+  // Reset view when duration changes
+  useEffect(() => {
+    if (duration > 0) { setViewStart(0); setViewEnd(duration); }
+  }, [duration]);
+
+  const viewDur = (viewEnd || duration) - viewStart;
+  const isZoomed = duration > 0 && viewDur < duration - 0.1;
+
+  // Map time to percentage within the visible window
+  const timeToPct = useCallback(
+    (t: number) => viewDur > 0 ? ((t - viewStart) / viewDur) * 100 : 0,
+    [viewStart, viewDur]
+  );
+
+  // Map clientX to time within visible window
   const getTimeFromX = useCallback(
     (clientX: number) => {
       const el = trackRef.current;
-      if (!el || !duration) return 0;
+      if (!el || !viewDur) return 0;
       const rect = el.getBoundingClientRect();
-      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * duration;
+      const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return Math.max(0, Math.min(duration, viewStart + frac * viewDur));
     },
-    [duration]
+    [viewStart, viewDur, duration]
+  );
+
+  // Scroll to zoom
+  const handleWheel = useCallback(
+    (e: React.WheelEvent) => {
+      e.preventDefault();
+      if (!duration || !trackRef.current) return;
+      const rect = trackRef.current.getBoundingClientRect();
+      const mouseFrac = (e.clientX - rect.left) / rect.width;
+      const mouseTime = viewStart + mouseFrac * viewDur;
+
+      const zoomFactor = e.deltaY > 0 ? 1.3 : 0.7; // scroll down = zoom out
+      const newDur = Math.max(2, Math.min(duration, viewDur * zoomFactor));
+
+      // Keep mouseTime at the same screen fraction
+      let newStart = mouseTime - mouseFrac * newDur;
+      let newEnd = mouseTime + (1 - mouseFrac) * newDur;
+
+      // Clamp
+      if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+      if (newEnd > duration) { newStart -= newEnd - duration; newEnd = duration; }
+      newStart = Math.max(0, newStart);
+
+      setViewStart(newStart);
+      setViewEnd(newEnd);
+    },
+    [duration, viewStart, viewDur]
   );
 
   const handlePointerDown = useCallback(
@@ -96,16 +143,16 @@ function Timeline({
       el.setPointerCapture(e.pointerId);
       const rect = el.getBoundingClientRect();
 
-      // Check loop handles (within 12px)
-      const axPx = (loopStart / duration) * rect.width + rect.left;
-      const bxPx = (loopEnd / duration) * rect.width + rect.left;
-      if (Math.abs(e.clientX - axPx) < 12) { setDragging("loopA"); return; }
-      if (Math.abs(e.clientX - bxPx) < 12) { setDragging("loopB"); return; }
+      // Check loop handles in pixel space (within 12px)
+      const loopAPx = timeToPct(loopStart) / 100 * rect.width + rect.left;
+      const loopBPx = timeToPct(loopEnd) / 100 * rect.width + rect.left;
+      if (Math.abs(e.clientX - loopAPx) < 12) { setDragging("loopA"); return; }
+      if (Math.abs(e.clientX - loopBPx) < 12) { setDragging("loopB"); return; }
 
       setDragging("seek");
       onSeek(getTimeFromX(e.clientX));
     },
-    [duration, loopStart, loopEnd, onSeek, getTimeFromX]
+    [duration, loopStart, loopEnd, onSeek, getTimeFromX, timeToPct]
   );
 
   const handlePointerMove = useCallback(
@@ -121,17 +168,20 @@ function Timeline({
 
   const handlePointerUp = useCallback(() => setDragging(null), []);
 
-  const progressPct = duration ? (currentTime / duration) * 100 : 0;
-  const startPct = duration ? (loopStart / duration) * 100 : 0;
-  const endPct = duration ? (loopEnd / duration) * 100 : 100;
+  const progressPct = timeToPct(currentTime);
+  const startPct = timeToPct(loopStart);
+  const endPct = timeToPct(loopEnd || duration);
 
+  // Waveform bars — sample from the visible window
   const BARS = 100;
   const bars = waveform
     ? Array.from({ length: BARS }, (_, i) => {
-        const srcStart = Math.floor((i / BARS) * waveform.length);
-        const srcEnd = Math.floor(((i + 1) / BARS) * waveform.length);
+        const tStart = viewStart + (i / BARS) * viewDur;
+        const tEnd = viewStart + ((i + 1) / BARS) * viewDur;
+        const srcStart = Math.floor((tStart / duration) * waveform.length);
+        const srcEnd = Math.ceil((tEnd / duration) * waveform.length);
         let max = 0;
-        for (let j = srcStart; j < srcEnd && j < waveform.length; j++) {
+        for (let j = Math.max(0, srcStart); j < Math.min(srcEnd, waveform.length); j++) {
           if (waveform[j] > max) max = waveform[j];
         }
         return max;
@@ -148,6 +198,7 @@ function Timeline({
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
+        onWheel={handleWheel}
         sx={{
           position: "relative",
           height: 56,
@@ -156,7 +207,7 @@ function Timeline({
           overflow: "hidden",
           cursor: "pointer",
           border: "1px solid",
-          borderColor: "rgba(255,255,255,0.1)",
+          borderColor: isZoomed ? `${color}44` : "rgba(255,255,255,0.1)",
         }}
       >
         {/* Waveform bars */}
@@ -192,58 +243,66 @@ function Timeline({
         </Box>
 
         {/* Loop region overlay — always visible */}
-        <Box
-          sx={{
-            position: "absolute",
-            top: 0, bottom: 0,
-            left: `${startPct}%`,
-            width: `${endPct - startPct}%`,
-            bgcolor: regionBg,
-            borderLeft: `2px solid ${handleColor}`,
-            borderRight: `2px solid ${handleColor}`,
-            pointerEvents: "none",
-          }}
-        />
+        {startPct < 100 && endPct > 0 && (
+          <Box
+            sx={{
+              position: "absolute",
+              top: 0, bottom: 0,
+              left: `${Math.max(0, startPct)}%`,
+              width: `${Math.min(100, endPct) - Math.max(0, startPct)}%`,
+              bgcolor: regionBg,
+              borderLeft: startPct >= 0 ? `2px solid ${handleColor}` : "none",
+              borderRight: endPct <= 100 ? `2px solid ${handleColor}` : "none",
+              pointerEvents: "none",
+            }}
+          />
+        )}
 
-        {/* Loop handle A (left) */}
-        <Box
-          sx={{
-            position: "absolute", top: 0, bottom: 0,
-            left: `${startPct}%`, width: 20, ml: "-10px",
-            cursor: "ew-resize", display: "flex", alignItems: "center",
-            justifyContent: "center", zIndex: 3,
-          }}
-        >
-          <Box sx={{
-            width: 6, height: "60%", borderRadius: 1,
-            bgcolor: handleColor,
-            boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
-          }} />
-        </Box>
+        {/* Loop handle A */}
+        {startPct >= -5 && startPct <= 105 && (
+          <Box
+            sx={{
+              position: "absolute", top: 0, bottom: 0,
+              left: `${startPct}%`, width: 20, ml: "-10px",
+              cursor: "ew-resize", display: "flex", alignItems: "center",
+              justifyContent: "center", zIndex: 3,
+            }}
+          >
+            <Box sx={{
+              width: 6, height: "60%", borderRadius: 1,
+              bgcolor: handleColor,
+              boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
+            }} />
+          </Box>
+        )}
 
-        {/* Loop handle B (right) */}
-        <Box
-          sx={{
-            position: "absolute", top: 0, bottom: 0,
-            left: `${endPct}%`, width: 20, ml: "-10px",
-            cursor: "ew-resize", display: "flex", alignItems: "center",
-            justifyContent: "center", zIndex: 3,
-          }}
-        >
-          <Box sx={{
-            width: 6, height: "60%", borderRadius: 1,
-            bgcolor: handleColor,
-            boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
-          }} />
-        </Box>
+        {/* Loop handle B */}
+        {endPct >= -5 && endPct <= 105 && (
+          <Box
+            sx={{
+              position: "absolute", top: 0, bottom: 0,
+              left: `${endPct}%`, width: 20, ml: "-10px",
+              cursor: "ew-resize", display: "flex", alignItems: "center",
+              justifyContent: "center", zIndex: 3,
+            }}
+          >
+            <Box sx={{
+              width: 6, height: "60%", borderRadius: 1,
+              bgcolor: handleColor,
+              boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
+            }} />
+          </Box>
+        )}
 
         {/* Playhead */}
-        <Box sx={{
-          position: "absolute", top: 0, bottom: 0,
-          left: `${progressPct}%`, width: 2,
-          bgcolor: "#fff", zIndex: 4, pointerEvents: "none",
-          boxShadow: "0 0 4px rgba(255,255,255,0.5)",
-        }} />
+        {progressPct >= 0 && progressPct <= 100 && (
+          <Box sx={{
+            position: "absolute", top: 0, bottom: 0,
+            left: `${progressPct}%`, width: 2,
+            bgcolor: "#fff", zIndex: 4, pointerEvents: "none",
+            boxShadow: "0 0 4px rgba(255,255,255,0.5)",
+          }} />
+        )}
       </Box>
 
       {/* Time display */}
@@ -252,8 +311,17 @@ function Timeline({
           {fmt(currentTime)}
         </Typography>
         <Typography variant="caption" sx={{ fontSize: 10, color: ORANGE }}>
-          {fmt(loopStart)}→{fmt(loopEnd)}
+          {fmt(loopStart)}→{fmt(loopEnd || duration)}
         </Typography>
+        {isZoomed && (
+          <Typography
+            variant="caption"
+            sx={{ fontSize: 10, color: color, cursor: "pointer" }}
+            onClick={() => { setViewStart(0); setViewEnd(duration); }}
+          >
+            Reset zoom
+          </Typography>
+        )}
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
           {fmt(duration)}
         </Typography>
