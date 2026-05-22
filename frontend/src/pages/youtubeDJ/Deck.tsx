@@ -4,7 +4,6 @@ import {
   Button,
   CircularProgress,
   IconButton,
-  LinearProgress,
   Paper,
   Slider,
   Stack,
@@ -247,27 +246,15 @@ function Timeline({
         }} />
       </Box>
 
-      {/* Time + level meter */}
-      <Stack direction="row" alignItems="center" sx={{ mt: 0.5, gap: 1 }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, minWidth: 32 }}>
+      {/* Time display */}
+      <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
           {fmt(currentTime)}
         </Typography>
-        <LinearProgress
-          variant="determinate"
-          value={Math.min(audioLevel * 300, 100)}
-          sx={{
-            flex: 1, height: 4, borderRadius: 1,
-            bgcolor: "rgba(255,255,255,0.06)",
-            "& .MuiLinearProgress-bar": {
-              bgcolor: audioLevel > 0.3 ? "warning.main" : color,
-              transition: "none",
-            },
-          }}
-        />
         <Typography variant="caption" sx={{ fontSize: 10, color: ORANGE }}>
           {fmt(loopStart)}→{fmt(loopEnd)}
         </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, minWidth: 32, textAlign: "right" }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
           {fmt(duration)}
         </Typography>
       </Stack>
