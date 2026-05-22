@@ -79,8 +79,8 @@ export function useYouTubePlayer(divId: string) {
 
   const loadVideo = useCallback((videoId: string) => {
     const p = playerRef.current;
-    if (!p?.loadVideoById) return;
-    p.loadVideoById(videoId);
+    if (!p?.cueVideoById) return;
+    p.cueVideoById(videoId);
     // Fetch title via noembed
     fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`)
       .then((r) => r.json())
