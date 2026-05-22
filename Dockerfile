@@ -4,6 +4,9 @@ WORKDIR /build
 COPY frontend/package*.json ./
 RUN npm ci
 COPY frontend/ ./
+# Strip HEIC support for production (not widely supported outside iOS Safari)
+RUN sed -i 's/accept="image\/\*,\.heic,\.heif"/accept="image\/jpeg,image\/png,image\/webp,image\/gif"/' public/apps/scalesnap/index.html \
+ && sed -i 's/heic|heif|//' public/apps/scalesnap/app.js
 RUN npx vite build
 
 # ---- Stage 2: Production FastAPI server ----

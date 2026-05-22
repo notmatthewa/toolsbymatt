@@ -34,6 +34,7 @@
   const historyList = document.getElementById('history-list');
   const btnClearHist = document.getElementById('btn-clear-history');
   const btnResetImage = document.getElementById('btn-reset-image');
+  const btnCalToggle = document.getElementById('btn-cal-toggle');
   const btnZoomIn = document.getElementById('btn-zoom-in');
   const btnZoomOut = document.getElementById('btn-zoom-out');
   const btnZoomFit = document.getElementById('btn-zoom-fit');
@@ -62,6 +63,7 @@
   // 3D calibration
   let planeCalibrated = false, planeW = 0, planeD = 0, planeUnit = 'ft';
   let calibH = null, camera = null, measureMode = 'surface';
+  let perspCalMode = 'ref'; // 'ref' = reference line, 'dims' = W×D
 
   // Drag
   let dragType = null, dragIndex = -1, isDragging = false, didDrag = false;
@@ -72,6 +74,8 @@
   let lastTouchCenter = null;
   let touchStartPos = null;
   let touchStartTime = 0;
+  let loupePoint = null;  // {x,y} in image coords — shown while touch-dragging a handle
+  const isMobile = 'ontouchstart' in window;
 
   let measurements = [];
 
@@ -151,9 +155,26 @@
     dropZone.querySelector('.loading-text').classList.toggle('hidden', !on);
   }
 
+  function isHeic(file) {
+    return /\.(heic|heif)$/i.test(file.name) || file.type === 'image/heic' || file.type === 'image/heif';
+  }
+
   function loadImage(file) {
     showLoading(true);
-    const url = URL.createObjectURL(file);
+    if (isHeic(file) && typeof HeicTo !== 'undefined') {
+      HeicTo({ blob: file, type: 'image/jpeg', quality: 0.92 })
+        .then(blob => displayImage(blob))
+        .catch(err => {
+          console.error('HEIC convert failed:', err);
+          displayImage(file); // fallback for Safari (native support)
+        });
+    } else {
+      displayImage(file);
+    }
+  }
+
+  function displayImage(blob) {
+    const url = URL.createObjectURL(blob);
     img = new Image();
     img.onload = () => {
       showLoading(false);
@@ -184,7 +205,7 @@
     refLine = null; refReal = null; scale = 1;
     perspEnabled = false; perspCorners = null; homography = null;
     planeCalibrated = false; planeW = 0; planeD = 0;
-    calibH = null; camera = null; measureMode = 'surface';
+    calibH = null; camera = null; measureMode = 'surface'; perspCalMode = 'ref';
     dragType = null; dragIndex = -1; isDragging = false; didDrag = false;
     isPanning = false; panMode = false;
     measurements = [];
@@ -199,6 +220,7 @@
     planeInput.classList.add('hidden');
     measureModes.classList.add('hidden');
     btnSetRef.disabled = true; btnSetPlane.disabled = true;
+    btnCalToggle.classList.add('hidden');
     outputUnitSel.value = 'ft';
     resultBar.classList.add('hidden');
     historyPanel.classList.add('hidden');
@@ -373,11 +395,19 @@
         const mx=iw*0.15, my=ih*0.15, w=iw*0.7, h=ih*0.7;
         perspCorners = [{x:mx,y:my},{x:mx+w,y:my},{x:mx+w,y:my+h},{x:mx,y:my+h}];
       }
-      refLabel.textContent='Plane Size';
-      refInput.classList.add('hidden');
-      planeInput.classList.toggle('hidden', planeCalibrated);
+      perspCalMode = 'ref';
+      refLabel.textContent='Reference';
+      if (!planeCalibrated) {
+        refInput.classList.remove('hidden');
+        planeInput.classList.add('hidden');
+        btnCalToggle.classList.remove('hidden');
+        btnCalToggle.textContent = 'or enter plane W \u00d7 D';
+      } else {
+        btnCalToggle.classList.add('hidden');
+      }
     } else {
       refLabel.textContent='Reference'; planeInput.classList.add('hidden');
+      btnCalToggle.classList.add('hidden');
       measureModes.classList.add('hidden'); measureMode='surface';
       if (mode==='reference') refInput.classList.remove('hidden');
       else if (!refLine) {
@@ -408,7 +438,7 @@
       if (m.type==='height') drawHeightDim(m.p1,m.p2,'rgba(34,211,238,0.45)',null,true);
       else drawLine(m.p1,m.p2,'rgba(74,222,128,0.5)',null,true);
     });
-    if (mode==='reference' && !perspEnabled && !refLine && points.length > 0) {
+    if (mode==='reference' && (!perspEnabled || perspCalMode==='ref') && !refLine && points.length > 0) {
       drawPoints(points,'#6c8cff');
       if (points.length===2) drawLine(points[0],points[1],'#6c8cff');
     }
@@ -431,6 +461,9 @@
         }
       }
     }
+
+    // Touch magnifier loupe (drawn last, on top)
+    if (loupePoint) drawLoupe(loupePoint);
   }
 
   function drawPerspPlane() {
@@ -454,10 +487,8 @@
       drawSmallLabel(ml.x-10,ml.y,`${planeD}`,'rgba(251,146,60,0.8)',true);
     }
     const labels=['TL','TR','BR','BL'];
-    const rad = Math.max(6, 8 / Math.sqrt(viewScale));
+    const rad = 5;
     c.forEach((p,i) => {
-      ctx.beginPath(); ctx.arc(p.x,p.y,rad+3,0,Math.PI*2);
-      ctx.fillStyle='rgba(251,146,60,0.25)'; ctx.fill();
       ctx.beginPath(); ctx.arc(p.x,p.y,rad,0,Math.PI*2);
       ctx.fillStyle='#fb923c'; ctx.fill();
       ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
@@ -533,11 +564,44 @@
 
   function drawEndpoint(p, color) {
     const s = toScreen(p);
-    const r = 'ontouchstart' in window ? 7 : 5;
+    const r = isMobile ? 5 : 5;
     ctx.beginPath(); ctx.arc(s.x,s.y,r,0,Math.PI*2);
     ctx.fillStyle=color; ctx.fill(); ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
   }
   function drawPoints(pts, color) { pts.forEach(p => drawEndpoint(p, color)); }
+
+  function drawLoupe(imgPt) {
+    // Magnifier loupe: shows a zoomed circle of the image around imgPt, drawn at top-center
+    if (!img || !imgPt) return;
+    const loupeR = isMobile ? 55 : 60;
+    const zoom = 4;
+    const cx = canvasW() / 2, cy = loupeR + 14;
+
+    ctx.save();
+    // Clip to circle
+    ctx.beginPath(); ctx.arc(cx, cy, loupeR, 0, Math.PI*2); ctx.closePath(); ctx.clip();
+
+    // Draw zoomed image portion
+    const srcX = imgPt.x - loupeR / zoom;
+    const srcY = imgPt.y - loupeR / zoom;
+    const srcSize = (loupeR * 2) / zoom;
+    ctx.drawImage(img, srcX, srcY, srcSize, srcSize, cx - loupeR, cy - loupeR, loupeR * 2, loupeR * 2);
+
+    // Crosshair
+    ctx.strokeStyle = 'rgba(255,255,255,0.6)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(cx - 8, cy); ctx.lineTo(cx + 8, cy);
+    ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8); ctx.stroke();
+    ctx.restore();
+
+    // Ring border
+    ctx.beginPath(); ctx.arc(cx, cy, loupeR, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, loupeR, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 4; ctx.stroke();
+    ctx.beginPath(); ctx.arc(cx, cy, loupeR, 0, Math.PI*2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
   function roundRect(ctx,x,y,w,h,r) {
     ctx.beginPath(); ctx.moveTo(x+r,y); ctx.lineTo(x+w-r,y);
     ctx.quadraticCurveTo(x+w,y,x+w,y+r); ctx.lineTo(x+w,y+h-r);
@@ -588,11 +652,13 @@
     if (!isDragging) return;
     didDrag = true;
     const pos = getImagePos(e);
+    loupePoint = pos;
     if (dragType === 'point') { points[dragIndex] = pos; draw(); updateLiveResult(); }
     else if (dragType === 'corner') { perspCorners[dragIndex] = pos; updateHomography(); recalibrateAll(); draw(); updateLiveResult(); }
   });
 
   canvas.addEventListener('mouseup', () => {
+    if (loupePoint) { loupePoint = null; draw(); }
     if (isPanning) { isPanning = false; canvasWrap.classList.remove('panning'); return; }
     if (isDragging) { isDragging = false; if (dragType==='point') updateSetButton(); dragType=null; dragIndex=-1; }
   });
@@ -688,6 +754,7 @@
       }
       if (didDrag && touchDragType) {
         const pos = toImage(sp.x, sp.y);
+        loupePoint = pos;
         if (touchDragType === 'point') { points[touchDragIndex] = pos; draw(); updateLiveResult(); }
         else if (touchDragType === 'corner') { perspCorners[touchDragIndex] = pos; updateHomography(); recalibrateAll(); draw(); updateLiveResult(); }
       }
@@ -698,8 +765,9 @@
     e.preventDefault();
     if (isPanning) { isPanning = false; return; }
     lastPinchDist = 0; lastTouchCenter = null;
+    // Hide loupe
+    if (loupePoint) { loupePoint = null; draw(); }
     if (e.touches.length === 0 && !didDrag && touchStartPos) {
-      // It was a tap
       const pos = toImage(touchStartPos.x, touchStartPos.y);
       handleTap(pos);
     }
@@ -712,8 +780,11 @@
   //  UNIFIED TAP HANDLER
   // ================================================================
   function handleTap(pos) {
-    if (mode === 'reference' && !perspEnabled) {
+    if (mode === 'reference' && (!perspEnabled || perspCalMode === 'ref')) {
       if (refLine) return;
+      if (points.length >= 2) {
+        points = []; btnSetRef.disabled = true;
+      }
       if (points.length < 2) {
         points.push(pos); draw();
         if (points.length===1) updateInstructions('Tap a second point to complete the reference line.');
@@ -783,6 +854,26 @@
   });
 
   // ================================================================
+  //  CALIBRATION MODE TOGGLE (perspective only)
+  // ================================================================
+  btnCalToggle.addEventListener('click', () => {
+    if (perspCalMode === 'ref') {
+      perspCalMode = 'dims';
+      refInput.classList.add('hidden');
+      planeInput.classList.remove('hidden');
+      refLabel.textContent = 'Plane Size';
+      btnCalToggle.textContent = 'or draw a reference line';
+    } else {
+      perspCalMode = 'ref';
+      planeInput.classList.add('hidden');
+      refInput.classList.remove('hidden');
+      refLabel.textContent = 'Reference';
+      btnCalToggle.textContent = 'or enter plane W \u00d7 D';
+    }
+    updateInstructions();
+  });
+
+  // ================================================================
   //  REFERENCE / PLANE CALIBRATION
   // ================================================================
   refValue.addEventListener('input', updateSetButton);
@@ -796,7 +887,26 @@
     const val=parseFloat(refValue.value); if (!val||val<=0) return;
     refLine={p1:points[0],p2:points[1]}; refReal={value:val,unit:refUnit.value};
     scale=computeDistance(refLine.p1,refLine.p2)/val;
-    outputUnitSel.value=refUnit.value; points=[]; enterMeasureMode(); draw();
+    outputUnitSel.value=refUnit.value;
+
+    // If perspective is on, estimate plane W×D from the reference line + homography aspect ratio
+    if (perspEnabled && perspCorners && homography) {
+      const c = perspCorners;
+      const dstW = Math.max(pdist(c[0],c[1]), pdist(c[3],c[2]));
+      const dstH = Math.max(pdist(c[0],c[3]), pdist(c[1],c[2]));
+      // scale = real units per corrected pixel
+      const scaleFactor = val / computeDistance(refLine.p1, refLine.p2);
+      planeW = dstW * scaleFactor;
+      planeD = dstH * scaleFactor;
+      planeUnit = refUnit.value;
+      planeCalibrated = true;
+      scale = 1;
+      updateHomography();
+      measureModes.classList.remove('hidden');
+    }
+
+    btnCalToggle.classList.add('hidden');
+    points=[]; enterMeasureMode(); draw();
   });
   btnSetPlane.addEventListener('click', () => {
     const w=parseFloat(planeWInput.value), d=parseFloat(planeDInput.value);
@@ -825,7 +935,13 @@
     mode='reference'; points=[]; resultBar.classList.add('hidden'); measureModes.classList.add('hidden');
     if (perspEnabled) {
       planeCalibrated=false; calibH=null; camera=null;
-      planeInput.classList.remove('hidden'); refLabel.textContent='Plane Size';
+      refLine=null; refReal=null;
+      perspCalMode = 'ref';
+      refInput.classList.remove('hidden');
+      planeInput.classList.add('hidden');
+      refLabel.textContent='Reference';
+      btnCalToggle.classList.remove('hidden');
+      btnCalToggle.textContent = 'or enter plane W \u00d7 D';
     } else {
       const oldRef=refLine; refLine=null; refReal=null;
       refInput.classList.remove('hidden'); refLabel.textContent='Reference';
@@ -905,7 +1021,8 @@
   function outUnit() { return outputUnitSel.value; }
   function updateInstructions(html) {
     if (!html) {
-      if (perspEnabled&&!planeCalibrated&&mode==='reference') html='Drag the <strong style="color:#fb923c">orange corners</strong> to match a rectangular surface. Enter its <strong>Width</strong> and <strong>Depth</strong>.';
+      if (perspEnabled&&!planeCalibrated&&mode==='reference'&&perspCalMode==='dims') html='Drag the <strong style="color:#fb923c">orange corners</strong> to match a rectangular surface. Enter its <strong>Width</strong> and <strong>Depth</strong>.';
+      else if (perspEnabled&&!planeCalibrated&&mode==='reference') html='Drag the <strong style="color:#fb923c">orange corners</strong> to match a flat surface. Then tap two points and enter a <strong>known distance</strong>.';
       else if (!perspEnabled&&mode==='reference') html='Tap two points to set a <strong>reference line</strong> of known length.';
       else if (mode==='measure'&&perspEnabled&&planeCalibrated&&measureMode==='height') html='Tap the <strong>base</strong> of an object on the ground, then its <strong>top</strong>.';
       else html='Tap two points to measure a distance.';

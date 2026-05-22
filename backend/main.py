@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -42,6 +43,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    """Short cache for non-hashed static files so Cloudflare doesn't serve stale content."""
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        # Vite-hashed assets (e.g. /assets/index-Dy88f-5y.js) can cache forever
+        if path.startswith("/assets/"):
+            response.headers["cache-control"] = "public, max-age=31536000, immutable"
+        # Sub-app files and other static — short cache, must revalidate
+        elif path.startswith("/apps/") or path.startswith("/shared/"):
+            response.headers["cache-control"] = "public, max-age=60, must-revalidate"
+        return response
+
+
+app.add_middleware(NoCacheStaticMiddleware)
 
 
 # ---------- API ----------

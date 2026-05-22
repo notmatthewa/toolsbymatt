@@ -93,16 +93,26 @@ header h1 {
 /* Toolbar */
 .toolbar {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius) var(--radius) 0 0;
-  flex-wrap: wrap;
   flex-shrink: 0;
 }
-.toolbar-sep { width: 1px; height: 24px; background: var(--border); }
+.toolbar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.toolbar-row + .toolbar-row {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.toolbar-inputs {
+  padding: 6px 12px 8px;
+}
+.toolbar-sep { width: 1px; height: 22px; background: var(--border); flex-shrink: 0; }
 .steps { display: flex; gap: 4px; }
 .step-btn {
   display: flex; align-items: center; gap: 6px;
@@ -146,21 +156,21 @@ header h1 {
 .mode-btn.active svg { stroke: #000; }
 
 /* Inputs */
-.ref-input { display: flex; align-items: center; gap: 6px; margin-left: 8px; }
+.ref-input { display: flex; align-items: center; gap: 6px; }
 .ref-input input[type="number"] {
-  width: 80px; padding: 6px 10px;
+  width: 80px; padding: 5px 8px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface2); color: var(--text); font-size: 14px;
   outline: none; transition: border-color 0.15s;
 }
 .ref-input input:focus { border-color: var(--accent); }
 .ref-input select {
-  padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 5px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface2); color: var(--text); font-size: 13px;
   outline: none; cursor: pointer;
 }
 .dim-label { font-size: 11px; font-weight: 700; color: var(--orange); letter-spacing: 0.5px; }
-.dim-x { color: var(--text-dim); font-size: 13px; }
+.dim-x { color: var(--text-dim); font-size: 13px; margin: 0 -1px; }
 
 .btn-primary {
   padding: 6px 16px; border: none; border-radius: var(--radius-sm);
@@ -176,6 +186,13 @@ header h1 {
   background: transparent; color: var(--text-dim); cursor: pointer; transition: all 0.15s;
 }
 .btn-icon:hover { background: var(--surface2); color: var(--text); }
+.cal-toggle {
+  background: none; border: none; cursor: pointer;
+  color: var(--accent); font-size: 11px; font-weight: 500;
+  text-decoration: underline; text-underline-offset: 2px;
+  padding: 2px 4px; white-space: nowrap;
+}
+.cal-toggle:hover { color: #a5b4fc; }
 .toolbar-right { margin-left: auto; }
 
 /* Instructions */
@@ -299,10 +316,9 @@ canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; 
   .subtitle { font-size: 12px; }
   .drop-zone { margin: 0 12px; padding: 48px 16px; }
 
-  .toolbar {
-    gap: 6px; padding: 8px 10px;
-    border-radius: 0; border-left: none; border-right: none;
-  }
+  .toolbar { border-radius: 0; border-left: none; border-right: none; }
+  .toolbar-row { padding: 6px 10px; gap: 6px; }
+  .toolbar-inputs { padding: 4px 10px 6px; }
   .toolbar-sep { display: none; }
   .btn-text { display: none; }
   .persp-btn { padding: 6px 8px; }
@@ -310,7 +326,7 @@ canvas { display: block; width: 100%; height: 100%; position: absolute; top: 0; 
   .step-num { width: 18px; height: 18px; font-size: 10px; }
   .mode-btn { padding: 4px 8px; font-size: 11px; }
 
-  .ref-input { margin-left: 0; width: 100%; flex-wrap: wrap; gap: 4px; }
+  .ref-input { flex-wrap: wrap; gap: 4px; }
   .ref-input input[type="number"] { flex: 1; min-width: 0; width: 60px; font-size: 16px; }
   .ref-input select { font-size: 14px; }
 
