@@ -453,7 +453,7 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         onLoopChange={handleLoopChange}
       />
 
-      {/* Transport + Loop */}
+      {/* Transport */}
       <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
         <IconButton
           size="small"
@@ -466,27 +466,56 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         <IconButton size="small" onClick={() => controls.seekTo(0)} sx={{ color: "text.secondary" }}>
           <ReplayIcon fontSize="small" />
         </IconButton>
-        <Box sx={{ width: 8 }} />
-        <IconButton
+      </Stack>
+
+      {/* Loop controls */}
+      <Stack direction="row" spacing={0.5} alignItems="center">
+        <Button
           size="small"
-          onClick={setLoopFromCurrent}
+          variant={loopA !== null ? "contained" : "outlined"}
+          onClick={() => setLoopA(loopA !== null ? null : state.currentTime)}
           sx={{
-            color: looping ? color : loopA !== null ? "warning.main" : "text.secondary",
-            bgcolor: looping ? `${color}22` : undefined,
+            minWidth: 48, fontSize: 11, px: 1,
+            bgcolor: loopA !== null ? color : undefined,
+            borderColor: color,
+            "&:hover": { bgcolor: loopA !== null ? color : undefined, opacity: 0.85 },
           }}
-          title={loopA === null ? "Set loop start" : loopB === null ? "Set loop end" : "Clear loop"}
         >
-          <RepeatIcon fontSize="small" />
-        </IconButton>
+          IN {loopA !== null ? fmt(loopA) : ""}
+        </Button>
+        <Button
+          size="small"
+          variant={loopB !== null ? "contained" : "outlined"}
+          onClick={() => setLoopB(loopB !== null ? null : state.currentTime)}
+          sx={{
+            minWidth: 48, fontSize: 11, px: 1,
+            bgcolor: loopB !== null ? color : undefined,
+            borderColor: color,
+            "&:hover": { bgcolor: loopB !== null ? color : undefined, opacity: 0.85 },
+          }}
+        >
+          OUT {loopB !== null ? fmt(loopB) : ""}
+        </Button>
+        <Button
+          size="small"
+          variant={looping ? "contained" : "outlined"}
+          color={looping ? "success" : "inherit"}
+          disabled={loopA === null || loopB === null}
+          onClick={() => setLooping(!looping)}
+          startIcon={<RepeatIcon sx={{ fontSize: 14 }} />}
+          sx={{ fontSize: 11, px: 1.5 }}
+        >
+          {looping ? "LOOP ON" : "LOOP"}
+        </Button>
         {loopA !== null && loopB !== null && (
           <Button
             size="small"
-            variant={looping ? "contained" : "outlined"}
-            color={looping ? "success" : "inherit"}
-            onClick={() => setLooping(!looping)}
-            sx={{ fontSize: 10, px: 1, minWidth: 0 }}
+            variant="outlined"
+            color="inherit"
+            onClick={() => { setLoopA(null); setLoopB(null); setLooping(false); }}
+            sx={{ fontSize: 10, px: 1, minWidth: 0, color: "text.secondary" }}
           >
-            {looping ? "ON" : "OFF"}
+            Clear
           </Button>
         )}
       </Stack>
