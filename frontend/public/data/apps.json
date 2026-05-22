@@ -4,7 +4,7 @@
       "id": "scalesnap",
       "name": "ScaleSnap",
       "description": "Measure anything in a photo with perspective correction and 3D height estimation",
-      "url": "/apps/scalesnap/",
+      "url": "/apps/scalesnap",
       "icon": "Straighten",
       "tags": ["photo", "measurement", "perspective", "tools"]
     }

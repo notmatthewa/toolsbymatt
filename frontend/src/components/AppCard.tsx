@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import {
   Card,
   CardActionArea,
@@ -29,7 +30,8 @@ export default function AppCard({ app }: { app: AppEntry }) {
       }}
     >
       <CardActionArea
-        href={app.url}
+        component={Link}
+        to={app.url}
         sx={{ height: "100%", alignItems: "flex-start" }}
       >
         <CardContent sx={{ p: 3, "&:last-child": { pb: 3 } }}>

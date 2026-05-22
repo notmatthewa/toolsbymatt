@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Box,
   Chip,
@@ -25,8 +26,9 @@ export default function SearchDialog({ open, onClose }: SearchDialogProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<AppEntry[]>([]);
   const [selected, setSelected] = useState(0);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   // Reset on open
   useEffect(() => {
@@ -64,12 +66,12 @@ export default function SearchDialog({ open, onClose }: SearchDialogProps) {
     el?.scrollIntoView({ block: "nearest" });
   }, [selected]);
 
-  const navigate = useCallback(
+  const goToApp = useCallback(
     (app: AppEntry) => {
       onClose();
-      window.location.href = app.url;
+      navigate(app.url);
     },
-    [onClose]
+    [onClose, navigate]
   );
 
   const handleKeyDown = useCallback(
@@ -81,10 +83,10 @@ export default function SearchDialog({ open, onClose }: SearchDialogProps) {
         e.preventDefault();
         setSelected((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter" && results[selected]) {
-        navigate(results[selected]);
+        goToApp(results[selected]);
       }
     },
-    [results, selected, navigate]
+    [results, selected, goToApp]
   );
 
   return (
@@ -154,7 +156,7 @@ export default function SearchDialog({ open, onClose }: SearchDialogProps) {
           results.map((app, index) => (
             <Box
               key={app.id}
-              onClick={() => navigate(app)}
+              onClick={() => goToApp(app)}
               sx={{
                 display: "flex",
                 alignItems: "center",

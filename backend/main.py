@@ -53,8 +53,8 @@ class NoCacheStaticMiddleware(BaseHTTPMiddleware):
         # Vite-hashed assets (e.g. /assets/index-Dy88f-5y.js) can cache forever
         if path.startswith("/assets/"):
             response.headers["cache-control"] = "public, max-age=31536000, immutable"
-        # Sub-app files and other static — short cache, must revalidate
-        elif path.startswith("/apps/") or path.startswith("/shared/"):
+        # Sub-app static assets — short cache, must revalidate
+        elif path.startswith("/apps/"):
             response.headers["cache-control"] = "public, max-age=60, must-revalidate"
         return response
 
@@ -85,11 +85,6 @@ async def search_apps(q: str = Query("", min_length=0)):
 
 # ---------- Static files (production: built frontend served by FastAPI) ----------
 
-# Sub-apps (e.g. ScaleSnap)
-scalesnap_dir = STATIC_DIR / "apps" / "scalesnap"
-if scalesnap_dir.is_dir():
-    app.mount("/apps/scalesnap", StaticFiles(directory=str(scalesnap_dir), html=True), name="scalesnap")
-
 # React build assets (/assets/*)
 assets_dir = STATIC_DIR / "assets"
 if assets_dir.is_dir():
@@ -101,11 +96,11 @@ index_html = STATIC_DIR / "index.html"
 
 @app.get("/{path:path}")
 async def spa_fallback(request: Request, path: str):
-    # Try to serve the exact file first (e.g. favicon.ico, data/apps.json)
+    # Try to serve the exact file first (e.g. favicon.ico, app JS/CSS assets)
     file_path = STATIC_DIR / path
     if path and file_path.is_file():
         return FileResponse(file_path)
-    # Otherwise serve the React SPA
+    # Otherwise serve the React SPA (client-side routing handles /apps/*)
     if index_html.is_file():
         return FileResponse(index_html)
     return {"detail": "Not found — run `make build` to generate frontend"}

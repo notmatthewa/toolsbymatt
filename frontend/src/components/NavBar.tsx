@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Link } from "react-router-dom";
 import { AppBar, Toolbar, Typography, Box, ButtonBase } from "@mui/material";
 import SearchIcon from "@mui/icons-material/Search";
 
@@ -29,7 +30,17 @@ export default function NavBar({ onSearchOpen }: NavBarProps) {
       }}
     >
       <Toolbar sx={{ justifyContent: "space-between" }}>
-        <Box sx={{ display: "flex", alignItems: "center", gap: 1.5 }}>
+        <Box
+          component={Link}
+          to="/"
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
+            textDecoration: "none",
+            color: "inherit",
+          }}
+        >
           <Box
             sx={{
               width: 32,
