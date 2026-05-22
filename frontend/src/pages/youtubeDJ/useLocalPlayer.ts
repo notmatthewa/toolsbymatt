@@ -19,11 +19,9 @@ export interface PlayerState {
   loadingProgress: string;
   videoId: string | null;
   title: string;
-  waveform: Float32Array | null;
+  waveform: number[] | null;
   audioLevel: number;
 }
-
-const WAVEFORM_BARS = 200;
 
 function extractVideoId(input: string): string | null {
   const m = input
@@ -32,23 +30,6 @@ function extractVideoId(input: string): string | null {
       /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/
     );
   return m ? m[1] : null;
-}
-
-function computeWaveform(buffer: AudioBuffer, bars: number): Float32Array {
-  const data = buffer.getChannelData(0);
-  const samplesPerBar = Math.floor(data.length / bars);
-  const peaks = new Float32Array(bars);
-  for (let i = 0; i < bars; i++) {
-    let max = 0;
-    const start = i * samplesPerBar;
-    const end = Math.min(start + samplesPerBar, data.length);
-    for (let j = start; j < end; j++) {
-      const v = Math.abs(data[j]);
-      if (v > max) max = v;
-    }
-    peaks[i] = max;
-  }
-  return peaks;
 }
 
 export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null>) {
@@ -73,36 +54,30 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     audioLevel: 0,
   });
 
-  // Connect video to Web Audio (called once on first play)
   const connectAudio = useCallback(() => {
     const video = videoRef.current;
     if (!video || connectedRef.current) return;
-
     try {
       const ctx = new AudioContext();
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
-
       const source = ctx.createMediaElementSource(video);
       source.connect(analyser);
       analyser.connect(ctx.destination);
-
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
       connectedRef.current = true;
     } catch {
-      // Might fail if already connected — fine, audio still works via element
+      // Already connected — audio still works via element
     }
   }, [videoRef]);
 
   // Poll playback state + audio level
   useEffect(() => {
     const timeBuf = new Uint8Array(128);
-
     intervalRef.current = setInterval(() => {
       const video = videoRef.current;
       if (!video) return;
-
       let audioLevel = 0;
       if (analyserRef.current && connectedRef.current) {
         analyserRef.current.getByteTimeDomainData(timeBuf);
@@ -113,7 +88,6 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         }
         audioLevel = Math.sqrt(sum / timeBuf.length);
       }
-
       setState((s) => ({
         ...s,
         currentTime: video.currentTime || 0,
@@ -122,7 +96,6 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         audioLevel,
       }));
     }, 100);
-
     return () => clearInterval(intervalRef.current);
   }, [videoRef]);
 
@@ -131,7 +104,6 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       const videoId = extractVideoId(url);
       if (!videoId) return;
 
-      // Clean up previous blob
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = null;
@@ -140,7 +112,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       setState((s) => ({
         ...s,
         loading: true,
-        loadingProgress: "Downloading...",
+        loadingProgress: "Downloading video...",
         videoId,
         title: "",
         waveform: null,
@@ -148,17 +120,25 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         currentTime: 0,
       }));
 
+      const fullUrl = url.includes("youtube.com") || url.includes("youtu.be")
+        ? url
+        : `https://www.youtube.com/watch?v=${videoId}`;
+
       // Fetch title
       fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`)
         .then((r) => r.json())
         .then((d) => setState((s) => ({ ...s, title: d.title || videoId })))
         .catch(() => setState((s) => ({ ...s, title: videoId })));
 
-      try {
-        const fullUrl = url.includes("youtube.com") || url.includes("youtu.be")
-          ? url
-          : `https://www.youtube.com/watch?v=${videoId}`;
+      // Fetch waveform from backend (in parallel with video download)
+      fetch(`/api/yt/waveform?url=${encodeURIComponent(fullUrl)}&bars=200`)
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.peaks?.length) setState((s) => ({ ...s, waveform: d.peaks }));
+        })
+        .catch(() => {});
 
+      try {
         const resp = await fetch(
           `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=480`
         );
@@ -167,7 +147,6 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
           throw new Error(errData?.detail || `Download failed (${resp.status})`);
         }
 
-        // Stream response and track progress
         const contentLength = resp.headers.get("content-length");
         const total = contentLength ? parseInt(contentLength) : 0;
         const reader = resp.body!.getReader();
@@ -192,44 +171,17 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         const blobUrl = URL.createObjectURL(blob);
         blobUrlRef.current = blobUrl;
 
-        // Load video element
         const video = videoRef.current;
         if (video) {
-          // Wait for metadata to load before marking as ready
           await new Promise<void>((resolve, reject) => {
-            const onLoaded = () => {
-              video.removeEventListener("loadedmetadata", onLoaded);
-              video.removeEventListener("error", onError);
-              resolve();
-            };
-            const onError = () => {
-              video.removeEventListener("loadedmetadata", onLoaded);
-              video.removeEventListener("error", onError);
-              reject(new Error("Video failed to load — format may not be supported"));
-            };
+            const onLoaded = () => { video.removeEventListener("loadedmetadata", onLoaded); video.removeEventListener("error", onError); resolve(); };
+            const onError = () => { video.removeEventListener("loadedmetadata", onLoaded); video.removeEventListener("error", onError); reject(new Error("Video failed to load")); };
             video.addEventListener("loadedmetadata", onLoaded);
             video.addEventListener("error", onError);
             video.src = blobUrl;
             video.load();
           });
-
-          // Apply current volume
           video.volume = volumeRef.current / 100;
-        }
-
-        // Generate waveform only for files under 50MB (avoids OOM on large videos)
-        if (blob.size < 50 * 1024 * 1024) {
-          setState((s) => ({ ...s, loadingProgress: "Generating waveform..." }));
-          try {
-            const waveformCtx = new AudioContext();
-            const arrayBuffer = await blob.arrayBuffer();
-            const audioBuffer = await waveformCtx.decodeAudioData(arrayBuffer);
-            const waveform = computeWaveform(audioBuffer, WAVEFORM_BARS);
-            setState((s) => ({ ...s, waveform }));
-            waveformCtx.close();
-          } catch {
-            // Waveform generation failed — not critical
-          }
         }
 
         setState((s) => ({ ...s, loading: false, loadingProgress: "" }));
@@ -247,16 +199,9 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
   const play = useCallback(() => {
     const video = videoRef.current;
     if (!video || !video.src) return;
-
-    // Connect audio on first play (needs user gesture for AudioContext)
     connectAudio();
-    if (audioCtxRef.current?.state === "suspended") {
-      audioCtxRef.current.resume();
-    }
-
-    video.play().catch(() => {
-      // Autoplay blocked — user needs to interact
-    });
+    if (audioCtxRef.current?.state === "suspended") audioCtxRef.current.resume();
+    video.play().catch(() => {});
   }, [videoRef, connectAudio]);
 
   const pause = useCallback(() => videoRef.current?.pause(), [videoRef]);
@@ -288,7 +233,6 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     [videoRef]
   );
 
-  // Cleanup
   useEffect(() => {
     return () => {
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -297,6 +241,5 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
   }, []);
 
   const controls: PlayerControls = { loadVideo, play, pause, seekTo, setVolume, setSpeed };
-
   return { state, controls };
 }

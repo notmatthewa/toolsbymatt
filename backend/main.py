@@ -163,6 +163,36 @@ async def geocode(q: str = Query(min_length=1)):
 
 _YT_URL_RE = re.compile(r"(youtube\.com|youtu\.be)")
 
+WAVEFORM_BARS = 200
+
+
+def _generate_waveform(video_path: str, bars: int = WAVEFORM_BARS) -> list[float]:
+    """Extract audio from video with ffmpeg and compute peak waveform."""
+    import struct
+    tmp_wav = video_path + ".wav"
+    try:
+        subprocess.run(
+            [shutil.which("ffmpeg") or "ffmpeg", "-i", video_path,
+             "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", "-y", tmp_wav],
+            capture_output=True, timeout=30,
+        )
+        if not os.path.exists(tmp_wav):
+            return []
+        with open(tmp_wav, "rb") as f:
+            raw = f.read()
+        samples = struct.unpack(f"<{len(raw)//2}h", raw)
+        samples_per_bar = max(1, len(samples) // bars)
+        peaks: list[float] = []
+        for i in range(bars):
+            start = i * samples_per_bar
+            end = min(start + samples_per_bar, len(samples))
+            peak = max(abs(s) for s in samples[start:end]) if start < end else 0
+            peaks.append(round(peak / 32768, 4))
+        return peaks
+    finally:
+        if os.path.exists(tmp_wav):
+            os.remove(tmp_wav)
+
 
 @app.get("/api/yt/info")
 async def yt_info(url: str = Query(...)):
@@ -253,6 +283,41 @@ async def yt_download(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/yt/waveform")
+async def yt_waveform(url: str = Query(...), bars: int = Query(200, ge=50, le=500)):
+    if not _YT_URL_RE.search(url):
+        raise HTTPException(400, "Only YouTube URLs are supported")
+
+    tmp_dir = tempfile.mkdtemp()
+    out_template = os.path.join(tmp_dir, "%(title)s.%(ext)s")
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "format": "bestaudio/best",
+        "outtmpl": out_template,
+        "postprocessors": [
+            {"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "0"}
+        ],
+    }
+
+    def run():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+        files = list(Path(tmp_dir).iterdir())
+        if not files:
+            return []
+        return _generate_waveform(str(files[0]), bars)
+
+    try:
+        peaks = await asyncio.to_thread(run)
+    except Exception as e:
+        raise HTTPException(400, str(e))
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return {"peaks": peaks}
 
 
 # ---------- File Converter ----------

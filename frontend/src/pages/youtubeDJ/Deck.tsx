@@ -53,7 +53,7 @@ function Timeline({
   loopB: number | null;
   looping: boolean;
   color: string;
-  waveform: Float32Array | null;
+  waveform: number[] | null;
   audioLevel: number;
   onSeek: (t: number) => void;
   onLoopChange: (a: number | null, b: number | null) => void;
