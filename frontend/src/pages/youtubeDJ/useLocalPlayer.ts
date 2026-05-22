@@ -130,17 +130,10 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         .then((d) => setState((s) => ({ ...s, title: d.title || videoId })))
         .catch(() => setState((s) => ({ ...s, title: videoId })));
 
-      // Fetch waveform from backend (in parallel with video download)
-      fetch(`/api/yt/waveform?url=${encodeURIComponent(fullUrl)}&bars=200`)
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.peaks?.length) setState((s) => ({ ...s, waveform: d.peaks }));
-        })
-        .catch(() => {});
-
       try {
+        // Single download — waveform=200 tells backend to include peaks in X-Waveform header
         const resp = await fetch(
-          `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=480`
+          `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=480&waveform=200`
         );
         if (!resp.ok) {
           const errData = await resp.json().catch(() => null);
@@ -165,6 +158,15 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
             const mb = (received / 1024 / 1024).toFixed(1);
             setState((s) => ({ ...s, loadingProgress: `Downloading... ${mb} MB` }));
           }
+        }
+
+        // Read waveform from response header (generated server-side from the same file)
+        const waveformHeader = resp.headers.get("x-waveform");
+        if (waveformHeader) {
+          try {
+            const peaks = JSON.parse(waveformHeader) as number[];
+            if (peaks.length) setState((s) => ({ ...s, waveform: peaks }));
+          } catch {}
         }
 
         const blob = new Blob(chunks as BlobPart[], { type: "video/mp4" });

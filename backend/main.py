@@ -54,6 +54,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Waveform"],
 )
 
 
@@ -223,6 +224,7 @@ async def yt_download(
     url: str = Query(...),
     format: str = Query("mp3", pattern="^(mp3|mp4)$"),
     quality: int = Query(1080, ge=360, le=2160),
+    waveform: int = Query(0, ge=0, le=500),
 ):
     if not _YT_URL_RE.search(url):
         raise HTTPException(400, "Only YouTube URLs are supported")
@@ -272,22 +274,29 @@ async def yt_download(
         raise HTTPException(500, "Download produced no output")
     out_file = files[0]
 
+    # Generate waveform from the downloaded file (no second download needed)
+    waveform_json = ""
+    if waveform:
+        try:
+            peaks = _generate_waveform(str(out_file), waveform)
+            waveform_json = json.dumps(peaks)
+        except Exception:
+            pass
+
     def stream():
         try:
             with open(out_file, "rb") as f:
                 while chunk := f.read(65536):
                     yield chunk
         finally:
-            import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     media_type = "audio/mpeg" if format == "mp3" else "video/mp4"
     filename = out_file.name
-    return StreamingResponse(
-        stream(),
-        media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if waveform_json:
+        headers["X-Waveform"] = waveform_json
+    return StreamingResponse(stream(), media_type=media_type, headers=headers)
 
 
 @app.get("/api/yt/waveform")
