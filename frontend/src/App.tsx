@@ -5,6 +5,7 @@ import NavBar from "./components/NavBar";
 import SearchDialog from "./components/SearchDialog";
 import HomePage from "./pages/HomePage";
 import ScaleSnapPage from "./pages/ScaleSnapPage";
+import RestaurantWheelPage from "./pages/restaurantWheel/RestaurantWheelPage";
 
 export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -24,6 +25,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/apps/scalesnap" element={<ScaleSnapPage />} />
+        <Route path="/apps/restaurant-wheel" element={<RestaurantWheelPage />} />
         </Routes>
       </Box>
     </Box>

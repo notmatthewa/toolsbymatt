@@ -1,8 +1,10 @@
 import json
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Query, Request
+import httpx
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -81,6 +83,41 @@ async def search_apps(q: str = Query("", min_length=0)):
         or any(query in tag for tag in a.tags)
     ]
     return AppsResponse(apps=results)
+
+
+# ---------- Isochrone / Geocode Proxy (OpenRouteService) ----------
+
+ORS_KEY = os.environ.get("ORS_API_KEY", "")
+
+
+@app.get("/api/isochrone")
+async def isochrone(lat: float, lon: float, minutes: int = Query(ge=1, le=60)):
+    if not ORS_KEY:
+        raise HTTPException(503, "ORS_API_KEY not configured")
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            "https://api.openrouteservice.org/v2/isochrones/driving-car",
+            headers={"Authorization": ORS_KEY},
+            json={"locations": [[lon, lat]], "range": [minutes * 60], "range_type": "time"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, resp.text)
+    return resp.json()
+
+
+@app.get("/api/geocode")
+async def geocode(q: str = Query(min_length=1)):
+    if not ORS_KEY:
+        raise HTTPException(503, "ORS_API_KEY not configured")
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(
+            "https://api.openrouteservice.org/geocode/search",
+            headers={"Authorization": ORS_KEY},
+            params={"text": q, "size": 5},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, resp.text)
+    return resp.json()
 
 
 # ---------- Static files (production: built frontend served by FastAPI) ----------

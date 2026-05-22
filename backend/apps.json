@@ -7,6 +7,14 @@
       "url": "/apps/scalesnap",
       "icon": "Straighten",
       "tags": ["photo", "measurement", "perspective", "tools"]
+    },
+    {
+      "id": "restaurant-wheel",
+      "name": "Restaurant Wheel",
+      "description": "Spin a wheel to randomly pick a restaurant within your drive-time radius",
+      "url": "/apps/restaurant-wheel",
+      "icon": "Restaurant",
+      "tags": ["food", "random", "location", "fun"]
     }
   ]
 }

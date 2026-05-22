@@ -7,6 +7,7 @@ import Brush from "@mui/icons-material/Brush";
 import PhotoCamera from "@mui/icons-material/PhotoCamera";
 import Settings from "@mui/icons-material/Settings";
 import Calculate from "@mui/icons-material/Calculate";
+import RestaurantIcon from "@mui/icons-material/Restaurant";
 
 // Add new icons here as you add apps to apps.json
 export const iconMap: Record<string, SvgIconComponent> = {
@@ -18,4 +19,5 @@ export const iconMap: Record<string, SvgIconComponent> = {
   PhotoCamera,
   Settings,
   Calculate,
+  Restaurant: RestaurantIcon,
 };
