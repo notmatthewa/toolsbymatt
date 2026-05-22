@@ -57,6 +57,7 @@ out center tags;
       id: `${el.type}/${el.id}`,
       name,
       cuisine: tags.cuisine?.split(";")[0],
+      amenity: tags.amenity,
       address: parts.join(", ") || undefined,
       lat,
       lon,

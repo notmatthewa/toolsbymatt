@@ -1,7 +1,8 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   Box,
   Button,
+  Chip,
   CircularProgress,
   Container,
   Dialog,
@@ -37,10 +38,53 @@ export default function RestaurantWheelPage() {
   const [coords, setCoords] = useState<{ lat: number; lon: number } | null>(null);
   const [minutes, setMinutes] = useState(10);
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
-  const [wheelItems, setWheelItems] = useState<Restaurant[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [winner, setWinner] = useState<Restaurant | null>(null);
+
+  // Filters
+  const [selectedCuisines, setSelectedCuisines] = useState<Set<string>>(new Set());
+  const [showFastFood, setShowFastFood] = useState(true);
+
+  // Derive available cuisines from results
+  const cuisines = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of restaurants) {
+      const c = r.cuisine?.toLowerCase();
+      if (c) counts.set(c, (counts.get(c) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
+  }, [restaurants]);
+
+  // Apply filters
+  const filtered = useMemo(() => {
+    return restaurants.filter((r) => {
+      if (!showFastFood && r.amenity === "fast_food") return false;
+      if (selectedCuisines.size > 0) {
+        const c = r.cuisine?.toLowerCase();
+        if (!c || !selectedCuisines.has(c)) return false;
+      }
+      return true;
+    });
+  }, [restaurants, selectedCuisines, showFastFood]);
+
+  // Wheel items from filtered list
+  const wheelItems = useMemo(() => {
+    if (filtered.length <= MAX_WHEEL_ITEMS) return filtered;
+    const shuffled = [...filtered].sort(() => Math.random() - 0.5);
+    return shuffled.slice(0, MAX_WHEEL_ITEMS);
+  }, [filtered]);
+
+  const toggleCuisine = (cuisine: string) => {
+    setSelectedCuisines((prev) => {
+      const next = new Set(prev);
+      if (next.has(cuisine)) next.delete(cuisine);
+      else next.add(cuisine);
+      return next;
+    });
+  };
 
   const geolocate = useCallback(() => {
     navigator.geolocation.getCurrentPosition(
@@ -55,7 +99,6 @@ export default function RestaurantWheelPage() {
 
   const geocodeText = useCallback(async () => {
     if (!locationText.trim()) return;
-    // Check if user typed coordinates directly
     const coordMatch = locationText.match(/^(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)$/);
     if (coordMatch) {
       setCoords({ lat: parseFloat(coordMatch[1]), lon: parseFloat(coordMatch[2]) });
@@ -85,9 +128,9 @@ export default function RestaurantWheelPage() {
     setLoading(true);
     setError("");
     setRestaurants([]);
-    setWheelItems([]);
+    setSelectedCuisines(new Set());
+    setShowFastFood(true);
     try {
-      // Get isochrone polygon
       const isoResp = await fetch(
         `/api/isochrone?lat=${coords.lat}&lon=${coords.lon}&minutes=${minutes}`
       );
@@ -96,17 +139,8 @@ export default function RestaurantWheelPage() {
       const polygon: [number, number][] =
         isoData.features[0].geometry.coordinates[0];
 
-      // Query restaurants within polygon
       const results = await queryRestaurants(polygon);
       setRestaurants(results);
-
-      // Pick items for wheel (random sample if too many)
-      if (results.length <= MAX_WHEEL_ITEMS) {
-        setWheelItems(results);
-      } else {
-        const shuffled = [...results].sort(() => Math.random() - 0.5);
-        setWheelItems(shuffled.slice(0, MAX_WHEEL_ITEMS));
-      }
 
       if (results.length === 0) {
         setError("No restaurants found in this area");
@@ -119,8 +153,11 @@ export default function RestaurantWheelPage() {
   }, [coords, minutes]);
 
   const reshuffle = () => {
-    const shuffled = [...restaurants].sort(() => Math.random() - 0.5);
-    setWheelItems(shuffled.slice(0, MAX_WHEEL_ITEMS));
+    // Force a new random sample by creating a new filtered→wheel derivation
+    // We achieve this by toggling a dummy state, but since wheelItems is derived
+    // from filtered via useMemo, we need to force it. Simplest: just set restaurants
+    // to a new array reference.
+    setRestaurants((prev) => [...prev]);
   };
 
   return (
@@ -179,8 +216,50 @@ export default function RestaurantWheelPage() {
         </Typography>
       )}
 
+      {/* Filters */}
+      {restaurants.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mb: 1, flexWrap: "wrap", gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ mr: 1 }}>
+              Filters:
+            </Typography>
+            <Chip
+              label={showFastFood ? "Fast food ON" : "Fast food OFF"}
+              size="small"
+              variant={showFastFood ? "filled" : "outlined"}
+              onClick={() => setShowFastFood(!showFastFood)}
+              sx={{ fontSize: 11 }}
+            />
+            {selectedCuisines.size > 0 && (
+              <Chip
+                label="Clear cuisines"
+                size="small"
+                variant="outlined"
+                onDelete={() => setSelectedCuisines(new Set())}
+                sx={{ fontSize: 11 }}
+              />
+            )}
+          </Stack>
+          {cuisines.length > 0 && (
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+              {cuisines.map(({ name, count }) => (
+                <Chip
+                  key={name}
+                  label={`${name} (${count})`}
+                  size="small"
+                  variant={selectedCuisines.has(name) ? "filled" : "outlined"}
+                  color={selectedCuisines.has(name) ? "primary" : "default"}
+                  onClick={() => toggleCuisine(name)}
+                  sx={{ fontSize: 11, textTransform: "capitalize" }}
+                />
+              ))}
+            </Box>
+          )}
+        </Box>
+      )}
+
       {/* Main content: list + wheel */}
-      {wheelItems.length > 0 && (
+      {filtered.length > 0 && (
         <Box
           sx={{
             display: "flex",
@@ -203,17 +282,18 @@ export default function RestaurantWheelPage() {
           >
             <Box sx={{ px: 2, py: 1, borderBottom: 1, borderColor: "divider" }}>
               <Typography variant="subtitle2">
-                {restaurants.length} restaurants found
-                {restaurants.length > MAX_WHEEL_ITEMS && ` (${MAX_WHEEL_ITEMS} on wheel)`}
+                {filtered.length} restaurants
+                {filtered.length !== restaurants.length && ` (of ${restaurants.length})`}
+                {filtered.length > MAX_WHEEL_ITEMS && ` · ${MAX_WHEEL_ITEMS} on wheel`}
               </Typography>
-              {restaurants.length > MAX_WHEEL_ITEMS && (
+              {filtered.length > MAX_WHEEL_ITEMS && (
                 <Button size="small" onClick={reshuffle} sx={{ fontSize: 11, p: 0 }}>
                   Reshuffle wheel
                 </Button>
               )}
             </Box>
             <List dense sx={{ overflow: "auto", flex: 1 }}>
-              {restaurants.map((r) => (
+              {filtered.map((r) => (
                 <ListItemButton
                   key={r.id}
                   component="a"
@@ -223,7 +303,11 @@ export default function RestaurantWheelPage() {
                 >
                   <ListItemText
                     primary={r.name}
-                    secondary={[r.cuisine, r.address].filter(Boolean).join(" · ")}
+                    secondary={[
+                      r.cuisine,
+                      r.amenity === "fast_food" ? "fast food" : null,
+                      r.address,
+                    ].filter(Boolean).join(" · ")}
                     slotProps={{ secondary: { noWrap: true } }}
                   />
                 </ListItemButton>

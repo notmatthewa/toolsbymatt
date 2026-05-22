@@ -7,6 +7,8 @@ const COLORS = [
   "#ef4444", "#14b8a6", "#f97316", "#06b6d4", "#84cc16", "#e879f9",
 ];
 
+const TWO_PI = Math.PI * 2;
+
 interface Props {
   restaurants: Restaurant[];
   onResult: (r: Restaurant) => void;
@@ -20,6 +22,23 @@ export default function SpinningWheel({ restaurants, onResult }: Props) {
   const animRef = useRef<number>(0);
   const sizeRef = useRef(400);
 
+  /** Given the current wheel rotation, which segment index is under the pointer? */
+  const getSegmentAtPointer = useCallback(
+    (angle: number) => {
+      const count = restaurants.length;
+      if (count === 0) return 0;
+      const arc = TWO_PI / count;
+      // Pointer is at top = -π/2 in canvas coords.
+      // Segment i spans from angle + i*arc to angle + (i+1)*arc.
+      // We need to find i such that angle + i*arc <= -π/2 < angle + (i+1)*arc
+      // i.e., i*arc <= -π/2 - angle (mod 2π) < (i+1)*arc
+      const pointerAngle = -Math.PI / 2;
+      const relativeAngle = ((pointerAngle - angle) % TWO_PI + TWO_PI) % TWO_PI;
+      return Math.floor(relativeAngle / arc) % count;
+    },
+    [restaurants.length]
+  );
+
   const draw = useCallback(
     (angle: number) => {
       const canvas = canvasRef.current;
@@ -30,7 +49,7 @@ export default function SpinningWheel({ restaurants, onResult }: Props) {
       const cy = size / 2;
       const r = size / 2 - 8;
       const count = restaurants.length;
-      const arc = (Math.PI * 2) / count;
+      const arc = TWO_PI / count;
 
       ctx.save();
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -68,7 +87,7 @@ export default function SpinningWheel({ restaurants, onResult }: Props) {
 
       // Center circle
       ctx.beginPath();
-      ctx.arc(cx, cy, 22, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 22, 0, TWO_PI);
       ctx.fillStyle = "#1e1e2e";
       ctx.fill();
       ctx.strokeStyle = "#fff";
@@ -125,24 +144,8 @@ export default function SpinningWheel({ restaurants, onResult }: Props) {
     if (spinning || restaurants.length === 0) return;
     setSpinning(true);
 
-    const count = restaurants.length;
-    const arc = (Math.PI * 2) / count;
-    // Pick random winner
-    const winnerIdx = Math.floor(Math.random() * count);
-
-    // The pointer is at the top = angle -π/2 in canvas coords.
-    // Segment i center is at: currentAngle + i*arc + arc/2
-    // We need: finalAngle + winnerIdx*arc + arc/2 ≡ -π/2 (mod 2π)
-    // So: finalAngle ≡ -π/2 - winnerIdx*arc - arc/2 (mod 2π)
-    const targetMod =
-      ((-Math.PI / 2 - winnerIdx * arc - arc / 2) % (Math.PI * 2) + Math.PI * 2) %
-      (Math.PI * 2);
-
-    // Calculate how much to rotate forward from current position
-    const currentMod = ((angleRef.current % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    let delta = ((targetMod - currentMod) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2);
-    // Add 8-12 full rotations for drama
-    delta += Math.PI * 2 * (8 + Math.random() * 4);
+    // Just spin a random amount (8-12 full rotations + random offset)
+    const delta = TWO_PI * (8 + Math.random() * 4) + Math.random() * TWO_PI;
 
     const startAngle = angleRef.current;
     const finalAngle = startAngle + delta;
@@ -161,6 +164,8 @@ export default function SpinningWheel({ restaurants, onResult }: Props) {
       if (t < 1) {
         animRef.current = requestAnimationFrame(animate);
       } else {
+        // Determine winner from where the wheel actually stopped
+        const winnerIdx = getSegmentAtPointer(current);
         setSpinning(false);
         onResult(restaurants[winnerIdx]);
       }
