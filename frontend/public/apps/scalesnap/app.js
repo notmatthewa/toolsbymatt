@@ -5,7 +5,7 @@
   const dropZone = document.getElementById('drop-zone');
   const fileInput = document.getElementById('file-input');
   const workspace = document.getElementById('workspace');
-  const header = document.querySelector('header');
+  const header = document.querySelector('#scalesnap-root header') || document.querySelector('#app > header');
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   const canvasWrap = document.getElementById('canvas-wrap');

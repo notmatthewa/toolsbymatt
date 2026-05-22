@@ -10,13 +10,22 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
 
   return (
-    <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        minHeight: "100vh",
+        bgcolor: "background.default",
+      }}
+    >
       <NavBar onSearchOpen={() => setSearchOpen(true)} />
       <SearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/apps/scalesnap" element={<ScaleSnapPage />} />
-      </Routes>
+      <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/apps/scalesnap" element={<ScaleSnapPage />} />
+        </Routes>
+      </Box>
     </Box>
   );
 }
