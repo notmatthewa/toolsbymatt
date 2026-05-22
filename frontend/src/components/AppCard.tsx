@@ -21,6 +21,7 @@ export default function AppCard({ app }: { app: AppEntry }) {
     <Card
       sx={{
         bgcolor: "background.paper",
+        height: "100%",
         transition: "border-color 0.2s, box-shadow 0.2s, transform 0.2s",
         "&:hover": {
           borderColor: "rgba(129, 140, 248, 0.3)",
@@ -59,7 +60,7 @@ export default function AppCard({ app }: { app: AppEntry }) {
           >
             {app.description}
           </Typography>
-          <Stack direction="row" spacing={0.5} sx={{ flexWrap: "wrap" }}>
+          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
             {app.tags.map((tag) => (
               <Chip
                 key={tag}
@@ -75,7 +76,7 @@ export default function AppCard({ app }: { app: AppEntry }) {
                 }}
               />
             ))}
-          </Stack>
+          </Box>
         </CardContent>
       </CardActionArea>
     </Card>

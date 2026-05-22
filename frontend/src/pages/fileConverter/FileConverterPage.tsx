@@ -20,6 +20,15 @@ const LABELS: Record<string, string> = {
   jpg: "JPG",
   webp: "WebP",
   pdf: "PDF",
+  mp4: "MP4",
+  webm: "WebM",
+  mov: "MOV",
+  mp3: "MP3",
+  wav: "WAV",
+  aac: "AAC",
+  flac: "FLAC",
+  ogg: "OGG",
+  gif: "GIF",
 };
 
 export default function FileConverterPage() {
@@ -216,10 +225,10 @@ export default function FileConverterPage() {
       )}
 
       <Typography variant="body2" color="text.secondary" sx={{ mt: 4, lineHeight: 1.8 }}>
-        <strong>Supported:</strong> PowerPoint (.pptx), Word (.docx), PDF,
-        images (PNG, JPG, WebP, GIF, HEIC), and with LibreOffice installed:
-        .doc, .odt, .rtf, .xls, .xlsx, .ods, .csv, .odp, Pages, Keynote,
-        Numbers, and more.
+        <strong>Supported:</strong> Video (MP4, MOV, AVI, MKV, WebM),
+        Audio (MP3, WAV, AAC, FLAC, OGG), PowerPoint, Word, PDF,
+        Images (PNG, JPG, WebP, GIF, HEIC), and with LibreOffice:
+        DOC, ODT, XLS, XLSX, Pages, Keynote, and more.
       </Typography>
     </Container>
   );

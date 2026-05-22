@@ -90,7 +90,7 @@ _SYNONYM_GROUPS = [
     {"location", "map", "place", "nearby", "local", "drive"},
     {"perspective", "3d", "angle", "depth", "height"},
     {"youtube", "video", "audio", "music", "mp3", "mp4", "download", "dj", "mixer", "song"},
-    {"file", "convert", "powerpoint", "pptx", "pdf", "image", "extract", "slides", "presentation"},
+    {"file", "convert", "powerpoint", "pptx", "pdf", "image", "extract", "slides", "presentation", "video", "audio"},
 ]
 
 _SYNONYMS: dict[str, set[str]] = {}
@@ -258,6 +258,8 @@ import shutil
 import subprocess
 
 IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic", "svg"}
+VIDEO_EXTS = {"mp4", "mov", "avi", "mkv", "webm", "flv", "wmv", "m4v", "ts", "mts", "3gp"}
+AUDIO_EXTS = {"mp3", "wav", "aac", "flac", "ogg", "m4a", "wma", "opus"}
 
 # Extensions LibreOffice can convert to PDF
 _LIBREOFFICE_EXTS = {
@@ -269,23 +271,28 @@ _LIBREOFFICE_EXTS = {
 }
 
 _SOFFICE = shutil.which("libreoffice") or shutil.which("soffice")
+_FFMPEG = shutil.which("ffmpeg")
 
 
 def _get_output_options(ext: str) -> list[str]:
     """Return available output formats for a given input extension."""
     if ext in ("pptx", "ppt", "odp", "key"):
-        opts = ["images", "pdf"]
-        return opts
+        return ["images", "pdf"]
     if ext in ("doc", "docx", "odt", "rtf", "txt", "pages", "html", "htm"):
-        opts = ["pdf", "images"]
-        return opts
+        return ["pdf", "images"]
     if ext in ("xls", "xlsx", "ods", "csv", "numbers"):
-        opts = ["pdf", "images"]
-        return opts
+        return ["pdf", "images"]
     if ext == "pdf":
         return ["images"]
     if ext in IMAGE_EXTS:
         return ["png", "jpg", "webp", "pdf"]
+    if ext in VIDEO_EXTS:
+        opts = ["mp4", "webm", "mov", "mp3", "wav", "gif"]
+        # Don't offer the same format as input
+        return [o for o in opts if o != ext]
+    if ext in AUDIO_EXTS:
+        opts = ["mp3", "wav", "aac", "flac", "ogg"]
+        return [o for o in opts if o != ext]
     # Unknown — try LibreOffice if available
     if _SOFFICE:
         return ["pdf", "images"]
@@ -362,6 +369,54 @@ def _convert_to_pdf_libreoffice(data: bytes, filename: str) -> bytes:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def _convert_with_ffmpeg(data: bytes, in_ext: str, out_ext: str, filename: str) -> tuple[str, bytes]:
+    """Convert video/audio using ffmpeg."""
+    if not _FFMPEG:
+        raise RuntimeError("ffmpeg not installed")
+    tmp = tempfile.mkdtemp()
+    try:
+        stem = filename.rsplit(".", 1)[0] if "." in filename else filename
+        src = os.path.join(tmp, f"input.{in_ext}")
+        out = os.path.join(tmp, f"{stem}.{out_ext}")
+        with open(src, "wb") as f:
+            f.write(data)
+
+        cmd = [_FFMPEG, "-i", src, "-y"]
+        if out_ext == "gif":
+            # Video → GIF: scale down, 10fps, good quality palette
+            cmd += ["-vf", "fps=10,scale=480:-1:flags=lanczos", "-loop", "0"]
+        elif out_ext in ("mp3", "wav", "aac", "flac", "ogg"):
+            # Extract/convert audio only
+            if out_ext == "mp3":
+                cmd += ["-vn", "-acodec", "libmp3lame", "-q:a", "2"]
+            elif out_ext == "wav":
+                cmd += ["-vn", "-acodec", "pcm_s16le"]
+            elif out_ext == "aac":
+                cmd += ["-vn", "-acodec", "aac", "-b:a", "192k"]
+            elif out_ext == "flac":
+                cmd += ["-vn", "-acodec", "flac"]
+            elif out_ext == "ogg":
+                cmd += ["-vn", "-acodec", "libvorbis", "-q:a", "5"]
+        elif out_ext == "mp4":
+            cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                    "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"]
+        elif out_ext == "webm":
+            cmd += ["-c:v", "libvpx-vp9", "-crf", "30", "-b:v", "0",
+                    "-c:a", "libopus", "-b:a", "128k"]
+        elif out_ext == "mov":
+            cmd += ["-c:v", "libx264", "-c:a", "aac", "-b:a", "192k"]
+        cmd.append(out)
+
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if not os.path.exists(out):
+            err = result.stderr.decode(errors="replace")[-500:]
+            raise RuntimeError(f"ffmpeg failed: {err}")
+        with open(out, "rb") as f:
+            return f"{stem}.{out_ext}", f.read()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _convert_image(data: bytes, target_format: str) -> tuple[str, bytes]:
     from PIL import Image
 
@@ -397,8 +452,15 @@ async def convert_file(
 
     results: list[tuple[str, bytes]] = []
 
+    # --- Video / Audio (ffmpeg) ---
+    if ext in VIDEO_EXTS or ext in AUDIO_EXTS:
+        name, converted = await asyncio.to_thread(
+            _convert_with_ffmpeg, data, ext, target, filename
+        )
+        results = [(name, converted)]
+
     # --- Images ---
-    if ext in IMAGE_EXTS:
+    elif ext in IMAGE_EXTS:
         if target in ("png", "jpg", "webp", "pdf"):
             name, converted = await asyncio.to_thread(_convert_image, data, target)
             results = [(name, converted)]
@@ -447,8 +509,13 @@ async def convert_file(
     if len(results) == 1:
         name, content = results[0]
         ext_out = name.rsplit(".", 1)[-1]
-        media_types = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                       "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf"}
+        media_types = {
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf",
+            "mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime",
+            "mp3": "audio/mpeg", "wav": "audio/wav", "aac": "audio/aac",
+            "flac": "audio/flac", "ogg": "audio/ogg",
+        }
         return Response(
             content,
             media_type=media_types.get(ext_out, "application/octet-stream"),
