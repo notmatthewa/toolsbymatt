@@ -507,9 +507,19 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
             min={0.25}
             max={2}
             step={0.05}
+            marks={[
+              { value: 0.5, label: ".5" },
+              { value: 1, label: "1x" },
+              { value: 1.5, label: "1.5" },
+              { value: 2, label: "2x" },
+            ]}
             onChange={(_, v) => controls.setSpeed(v as number)}
             size="small"
-            sx={{ color }}
+            sx={{
+              color,
+              "& .MuiSlider-markLabel": { fontSize: 9, color: "text.secondary", top: 20 },
+              "& .MuiSlider-mark": { bgcolor: "rgba(255,255,255,0.2)", height: 6, width: 1 },
+            }}
             valueLabelDisplay="auto"
             valueLabelFormat={(v) => `${v.toFixed(2)}x`}
           />

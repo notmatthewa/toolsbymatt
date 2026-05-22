@@ -2,7 +2,6 @@ import { useState } from "react";
 import {
   Box,
   Button,
-  Chip,
   Dialog,
   DialogActions,
   DialogContent,
@@ -19,6 +18,12 @@ interface Props {
   binds: KeyBinds;
   onChange: (binds: KeyBinds) => void;
 }
+
+const GROUPS: { label: string; color: string; keys: (keyof KeyBinds)[] }[] = [
+  { label: "Deck A", color: "#818cf8", keys: ["playA", "cueA1", "cueA2", "cueA3", "cueA4", "loopA"] },
+  { label: "Deck B", color: "#34d399", keys: ["playB", "cueB1", "cueB2", "cueB3", "cueB4", "loopB"] },
+  { label: "Mixer", color: "#94a3b8", keys: ["crossLeft", "crossCenter", "crossRight"] },
+];
 
 export default function KeybindsPanel({ binds, onChange }: Props) {
   const [open, setOpen] = useState(false);
@@ -48,12 +53,6 @@ export default function KeybindsPanel({ binds, onChange }: Props) {
     setDraft({ ...DEFAULT_KEYBINDS });
   };
 
-  const groups: { label: string; keys: (keyof KeyBinds)[] }[] = [
-    { label: "Deck A", keys: ["playA", "cueA1", "cueA2", "cueA3", "cueA4", "loopA"] },
-    { label: "Deck B", keys: ["playB", "cueB1", "cueB2", "cueB3", "cueB4", "loopB"] },
-    { label: "Crossfader", keys: ["crossLeft", "crossCenter", "crossRight"] },
-  ];
-
   return (
     <>
       <IconButton size="small" onClick={handleOpen} title="Keyboard shortcuts" sx={{ color: "text.secondary" }}>
@@ -64,38 +63,56 @@ export default function KeybindsPanel({ binds, onChange }: Props) {
         <DialogTitle>Keyboard Shortcuts</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Click a key to rebind it, then press the new key.
+            Click a key to rebind, then press the new key.
           </Typography>
-          <Stack spacing={2}>
-            {groups.map((group) => (
+          <Stack spacing={2.5}>
+            {GROUPS.map((group) => (
               <Box key={group.label}>
-                <Typography variant="subtitle2" sx={{ mb: 0.5, color: "text.secondary" }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: group.color, fontWeight: 700, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                   {group.label}
                 </Typography>
-                <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5 }}>
+                <Stack spacing={0}>
                   {group.keys.map((k) => (
-                    <Chip
+                    <Stack
                       key={k}
-                      label={
-                        <span>
-                          {BIND_LABELS[k]}:{" "}
-                          <strong>{editing === k ? "..." : draft[k].toUpperCase()}</strong>
-                        </span>
-                      }
-                      variant={editing === k ? "filled" : "outlined"}
-                      color={editing === k ? "primary" : "default"}
-                      onClick={() => setEditing(k)}
-                      sx={{ fontSize: 11 }}
-                    />
+                      direction="row"
+                      alignItems="center"
+                      justifyContent="space-between"
+                      sx={{
+                        py: 0.75, px: 1,
+                        borderRadius: 1,
+                        "&:hover": { bgcolor: "rgba(255,255,255,0.03)" },
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontSize: 13, color: "text.secondary" }}>
+                        {BIND_LABELS[k]}
+                      </Typography>
+                      <Box
+                        onClick={() => setEditing(k)}
+                        sx={{
+                          minWidth: 36, px: 1, py: 0.25,
+                          textAlign: "center",
+                          fontSize: 13, fontWeight: 700, fontFamily: "monospace",
+                          borderRadius: 1, cursor: "pointer",
+                          color: editing === k ? "primary.main" : "text.primary",
+                          bgcolor: editing === k ? "rgba(129,140,248,0.15)" : "rgba(255,255,255,0.06)",
+                          border: `1px solid ${editing === k ? "rgba(129,140,248,0.4)" : "rgba(255,255,255,0.1)"}`,
+                          transition: "all 0.15s",
+                          "&:hover": { borderColor: "rgba(129,140,248,0.3)" },
+                        }}
+                      >
+                        {editing === k ? "..." : draft[k].toUpperCase()}
+                      </Box>
+                    </Stack>
                   ))}
-                </Box>
+                </Stack>
               </Box>
             ))}
           </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleReset} color="inherit" size="small">
-            Reset to defaults
+            Reset defaults
           </Button>
           <Box sx={{ flex: 1 }} />
           <Button onClick={() => setOpen(false)} color="inherit">
