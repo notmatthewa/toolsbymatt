@@ -14,7 +14,6 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import RepeatIcon from "@mui/icons-material/Repeat";
-import SpeedIcon from "@mui/icons-material/Speed";
 import type { PlayerControls, PlayerState } from "./useLocalPlayer";
 
 interface DeckProps {
@@ -449,83 +448,101 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         onLoopChange={handleLoopChange}
       />
 
-      {/* Controls row: play, restart, loop, speed, cues — all compact */}
-      <Stack direction="row" spacing={0.25} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.25 }}>
+      {/* Controls */}
+      <Box
+        sx={{
+          display: "grid",
+          gridTemplateColumns: "auto 1fr auto",
+          gap: 1,
+          alignItems: "center",
+          p: 0.75,
+          bgcolor: "rgba(255,255,255,0.02)",
+          borderRadius: 1,
+          border: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
         {/* Transport */}
-        <Tooltip title={state.playing ? "Pause" : "Play"} arrow>
+        <Stack direction="row" spacing={0.5} alignItems="center">
           <IconButton
+            onClick={() => controls.seekTo(0)}
             size="small"
-            onClick={() => (state.playing ? controls.pause() : controls.play())}
-            sx={{ color, bgcolor: `${color}15`, "&:hover": { bgcolor: `${color}25` } }}
-            disabled={!state.videoId || state.loading}
+            sx={{ color: "text.secondary" }}
           >
-            {state.playing ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
-          </IconButton>
-        </Tooltip>
-        <Tooltip title="Restart" arrow>
-          <IconButton size="small" onClick={() => controls.seekTo(0)} sx={{ color: "text.secondary" }}>
             <SkipPreviousIcon fontSize="small" />
           </IconButton>
-        </Tooltip>
-
-        {/* Loop */}
-        <Tooltip title={looping ? "Loop ON (click to disable)" : "Enable loop"} arrow>
           <IconButton
-            size="small"
+            onClick={() => (state.playing ? controls.pause() : controls.play())}
+            disabled={!state.videoId || state.loading}
+            sx={{
+              width: 36, height: 36,
+              color: "#fff",
+              bgcolor: color,
+              "&:hover": { bgcolor: color, opacity: 0.85 },
+              "&.Mui-disabled": { bgcolor: "rgba(255,255,255,0.08)" },
+            }}
+          >
+            {state.playing ? <PauseIcon /> : <PlayArrowIcon />}
+          </IconButton>
+          <IconButton
             onClick={toggleLooping}
+            size="small"
             sx={{
               color: looping ? "#000" : ORANGE,
-              bgcolor: looping ? ORANGE_ACTIVE : `${ORANGE}15`,
-              "&:hover": { bgcolor: looping ? ORANGE : `${ORANGE}25` },
+              bgcolor: looping ? ORANGE_ACTIVE : "transparent",
+              border: `1px solid ${looping ? ORANGE_ACTIVE : "rgba(251,146,60,0.3)"}`,
+              "&:hover": { bgcolor: looping ? ORANGE : `${ORANGE}15` },
             }}
           >
             <RepeatIcon fontSize="small" />
           </IconButton>
-        </Tooltip>
-
-        {/* Divider */}
-        <Box sx={{ width: 1, height: 20, bgcolor: "divider", mx: 0.5 }} />
+        </Stack>
 
         {/* Speed */}
-        <SpeedIcon sx={{ fontSize: 14, color: "text.secondary" }} />
-        <Slider
-          value={state.speed}
-          min={0.25}
-          max={2}
-          step={0.05}
-          onChange={(_, v) => controls.setSpeed(v as number)}
-          size="small"
-          sx={{ width: 80, color, mx: 0.5 }}
-          valueLabelDisplay="auto"
-          valueLabelFormat={(v) => `${v.toFixed(2)}x`}
-        />
-        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", minWidth: 30 }}>
-          {state.speed.toFixed(2)}x
-        </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 1 }}>
+          <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", whiteSpace: "nowrap" }}>
+            Speed
+          </Typography>
+          <Slider
+            value={state.speed}
+            min={0.25}
+            max={2}
+            step={0.05}
+            onChange={(_, v) => controls.setSpeed(v as number)}
+            size="small"
+            sx={{ color }}
+            valueLabelDisplay="auto"
+            valueLabelFormat={(v) => `${v.toFixed(2)}x`}
+          />
+          <Typography variant="caption" sx={{ fontSize: 11, color: "text.secondary", minWidth: 36, textAlign: "right", fontWeight: 600 }}>
+            {state.speed.toFixed(2)}x
+          </Typography>
+        </Stack>
 
-        <Box sx={{ flex: 1 }} />
-
-        {/* Cues — compact numbered buttons */}
-        {cues.map((c, i) => (
-          <Tooltip key={i} title={c !== null ? `Jump to ${fmt(c)} (right-click to clear)` : `Set cue ${i + 1}`} arrow>
-            <IconButton
-              size="small"
-              onClick={() => toggleCue(i)}
-              onContextMenu={(e) => { e.preventDefault(); clearCue(i); }}
-              sx={{
-                width: 26, height: 26, fontSize: 11, fontWeight: 700,
-                color: c !== null ? "#fff" : "text.secondary",
-                bgcolor: c !== null ? color : "rgba(255,255,255,0.05)",
-                border: `1px solid ${c !== null ? color : "rgba(255,255,255,0.1)"}`,
-                borderRadius: 1,
-                "&:hover": { bgcolor: c !== null ? color : "rgba(255,255,255,0.1)", opacity: 0.85 },
-              }}
-            >
-              {i + 1}
-            </IconButton>
-          </Tooltip>
-        ))}
-      </Stack>
+        {/* Cue pads */}
+        <Stack direction="row" spacing={0.5}>
+          {cues.map((c, i) => (
+            <Tooltip key={i} title={c !== null ? `${fmt(c)} (right-click clear)` : `Set cue ${i + 1}`} arrow>
+              <Box
+                onClick={() => toggleCue(i)}
+                onContextMenu={(e) => { e.preventDefault(); clearCue(i); }}
+                sx={{
+                  width: 28, height: 28,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 700, cursor: "pointer",
+                  borderRadius: 1,
+                  color: c !== null ? "#fff" : "rgba(255,255,255,0.3)",
+                  bgcolor: c !== null ? color : "rgba(255,255,255,0.04)",
+                  border: `1px solid ${c !== null ? color : "rgba(255,255,255,0.08)"}`,
+                  transition: "all 0.1s",
+                  "&:hover": { borderColor: color, bgcolor: c !== null ? color : "rgba(255,255,255,0.08)" },
+                }}
+              >
+                {i + 1}
+              </Box>
+            </Tooltip>
+          ))}
+        </Stack>
+      </Box>
     </Paper>
   );
 }
