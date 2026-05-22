@@ -517,8 +517,9 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
             size="small"
             sx={{
               color,
-              "& .MuiSlider-markLabel": { fontSize: 8, color: "text.secondary" },
+              "& .MuiSlider-markLabel": { fontSize: 8, color: "text.secondary", top: 18 },
               "& .MuiSlider-mark": { display: "none" },
+              mb: 1,
             }}
             valueLabelDisplay="auto"
             valueLabelFormat={(v) => `${v.toFixed(2)}x`}
@@ -555,8 +556,16 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
       </Box>
 
       {/* Effects */}
-      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ px: 0.5 }}>
-        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary" }}>FX</Typography>
+      <Box
+        sx={{
+          display: "flex", alignItems: "center", gap: 0.5,
+          p: 0.75,
+          bgcolor: "rgba(255,255,255,0.02)",
+          borderRadius: 1,
+          border: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", fontWeight: 600, mr: 0.5 }}>FX</Typography>
         {(["none", "reverb", "echo", "lowpass", "highpass"] as EffectType[]).map((fx) => (
           <Box
             key={fx}
@@ -566,7 +575,7 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
               fontSize: 10, fontWeight: 600, cursor: "pointer",
               borderRadius: 1, textTransform: "uppercase",
               color: state.effect === fx ? (fx === "none" ? "text.secondary" : "#fff") : "rgba(255,255,255,0.35)",
-              bgcolor: state.effect === fx && fx !== "none" ? `${color}` : "rgba(255,255,255,0.04)",
+              bgcolor: state.effect === fx && fx !== "none" ? color : "rgba(255,255,255,0.04)",
               border: `1px solid ${state.effect === fx && fx !== "none" ? color : "rgba(255,255,255,0.08)"}`,
               transition: "all 0.1s",
               "&:hover": { bgcolor: state.effect === fx && fx !== "none" ? color : "rgba(255,255,255,0.08)" },
@@ -575,7 +584,7 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
             {fx === "none" ? "off" : fx === "lowpass" ? "lo-fi" : fx === "highpass" ? "thin" : fx}
           </Box>
         ))}
-      </Stack>
+      </Box>
     </Paper>
   );
 }
