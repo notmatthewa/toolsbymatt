@@ -14,7 +14,7 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
 import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import RepeatIcon from "@mui/icons-material/Repeat";
-import type { PlayerControls, PlayerState } from "./useLocalPlayer";
+import type { EffectType, PlayerControls, PlayerState } from "./useLocalPlayer";
 
 interface DeckProps {
   label: string;
@@ -517,8 +517,8 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
             size="small"
             sx={{
               color,
-              "& .MuiSlider-markLabel": { fontSize: 9, color: "text.secondary", top: 20 },
-              "& .MuiSlider-mark": { bgcolor: "rgba(255,255,255,0.2)", height: 6, width: 1 },
+              "& .MuiSlider-markLabel": { fontSize: 8, color: "text.secondary" },
+              "& .MuiSlider-mark": { display: "none" },
             }}
             valueLabelDisplay="auto"
             valueLabelFormat={(v) => `${v.toFixed(2)}x`}
@@ -553,6 +553,29 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
           ))}
         </Stack>
       </Box>
+
+      {/* Effects */}
+      <Stack direction="row" spacing={0.5} alignItems="center" sx={{ px: 0.5 }}>
+        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary" }}>FX</Typography>
+        {(["none", "reverb", "echo", "lowpass", "highpass"] as EffectType[]).map((fx) => (
+          <Box
+            key={fx}
+            onClick={() => controls.setEffect(fx)}
+            sx={{
+              px: 1, py: 0.25,
+              fontSize: 10, fontWeight: 600, cursor: "pointer",
+              borderRadius: 1, textTransform: "uppercase",
+              color: state.effect === fx ? (fx === "none" ? "text.secondary" : "#fff") : "rgba(255,255,255,0.35)",
+              bgcolor: state.effect === fx && fx !== "none" ? `${color}` : "rgba(255,255,255,0.04)",
+              border: `1px solid ${state.effect === fx && fx !== "none" ? color : "rgba(255,255,255,0.08)"}`,
+              transition: "all 0.1s",
+              "&:hover": { bgcolor: state.effect === fx && fx !== "none" ? color : "rgba(255,255,255,0.08)" },
+            }}
+          >
+            {fx === "none" ? "off" : fx === "lowpass" ? "lo-fi" : fx === "highpass" ? "thin" : fx}
+          </Box>
+        ))}
+      </Stack>
     </Paper>
   );
 }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+export type EffectType = "none" | "reverb" | "echo" | "lowpass" | "highpass";
+
 export interface PlayerControls {
   loadVideo: (youtubeUrl: string) => void;
   play: () => void;
@@ -7,6 +9,7 @@ export interface PlayerControls {
   seekTo: (seconds: number) => void;
   setVolume: (vol: number) => void;
   setSpeed: (rate: number) => void;
+  setEffect: (effect: EffectType) => void;
 }
 
 export interface PlayerState {
@@ -15,6 +18,7 @@ export interface PlayerState {
   duration: number;
   volume: number;
   speed: number;
+  effect: EffectType;
   loading: boolean;
   loadingProgress: string;
   videoId: string | null;
@@ -37,6 +41,8 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
   const blobUrlRef = useRef<string | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const effectNodeRef = useRef<AudioNode | null>(null);
   const connectedRef = useRef(false);
   const volumeRef = useRef(100);
   const abortRef = useRef<AbortController | null>(null);
@@ -47,6 +53,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     duration: 0,
     volume: 100,
     speed: 1,
+    effect: "none",
     loading: false,
     loadingProgress: "",
     videoId: null,
@@ -54,6 +61,61 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     waveform: null,
     audioLevel: 0,
   });
+
+  // Build an effect node for the given type
+  const buildEffectNode = useCallback((ctx: AudioContext, type: EffectType): AudioNode | null => {
+    if (type === "reverb") {
+      const convolver = ctx.createConvolver();
+      // Generate a simple impulse response (synthetic reverb)
+      const rate = ctx.sampleRate;
+      const len = rate * 2;
+      const buf = ctx.createBuffer(2, len, rate);
+      for (let ch = 0; ch < 2; ch++) {
+        const data = buf.getChannelData(ch);
+        for (let i = 0; i < len; i++) {
+          data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.5);
+        }
+      }
+      convolver.buffer = buf;
+      // Mix dry/wet
+      const dry = ctx.createGain(); dry.gain.value = 0.6;
+      const wet = ctx.createGain(); wet.gain.value = 0.4;
+      const merger = ctx.createGain();
+      // We need a custom routing node. Use a trick: return an object that connects input→output.
+      // Actually, simplest: just return the convolver with some gain.
+      const output = ctx.createGain();
+      convolver.connect(wet);
+      wet.connect(output);
+      dry.connect(output);
+      // We return { input: [dry, convolver], output }. But AudioNode API is single-node.
+      // Simplest approach: just use the convolver directly (100% wet for a clear effect)
+      return convolver;
+    }
+    if (type === "echo") {
+      const delay = ctx.createDelay(1);
+      delay.delayTime.value = 0.3;
+      const feedback = ctx.createGain();
+      feedback.gain.value = 0.4;
+      delay.connect(feedback);
+      feedback.connect(delay);
+      return delay;
+    }
+    if (type === "lowpass") {
+      const filter = ctx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 800;
+      filter.Q.value = 1;
+      return filter;
+    }
+    if (type === "highpass") {
+      const filter = ctx.createBiquadFilter();
+      filter.type = "highpass";
+      filter.frequency.value = 2000;
+      filter.Q.value = 1;
+      return filter;
+    }
+    return null;
+  }, []);
 
   const connectAudio = useCallback(() => {
     const video = videoRef.current;
@@ -67,6 +129,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       analyser.connect(ctx.destination);
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
+      sourceRef.current = source;
       connectedRef.current = true;
     } catch {}
   }, [videoRef]);
@@ -244,6 +307,38 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     [videoRef]
   );
 
+  const setEffect = useCallback(
+    (effect: EffectType) => {
+      const ctx = audioCtxRef.current;
+      const source = sourceRef.current;
+      const analyser = analyserRef.current;
+      if (!ctx || !source || !analyser) {
+        setState((s) => ({ ...s, effect }));
+        return;
+      }
+
+      // Disconnect old effect
+      source.disconnect();
+      if (effectNodeRef.current) {
+        effectNodeRef.current.disconnect();
+        effectNodeRef.current = null;
+      }
+
+      // Build new effect
+      const node = buildEffectNode(ctx, effect);
+      if (node) {
+        source.connect(node);
+        node.connect(analyser);
+        effectNodeRef.current = node;
+      } else {
+        source.connect(analyser);
+      }
+
+      setState((s) => ({ ...s, effect }));
+    },
+    [buildEffectNode]
+  );
+
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -253,8 +348,8 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
   }, []);
 
   const controls = useMemo<PlayerControls>(
-    () => ({ loadVideo, play, pause, seekTo, setVolume, setSpeed }),
-    [loadVideo, play, pause, seekTo, setVolume, setSpeed]
+    () => ({ loadVideo, play, pause, seekTo, setVolume, setSpeed, setEffect }),
+    [loadVideo, play, pause, seekTo, setVolume, setSpeed, setEffect]
   );
   return { state, controls };
 }
