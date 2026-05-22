@@ -25,6 +25,10 @@ interface DeckProps {
   state: PlayerState;
   controls: PlayerControls;
   effectiveVolume: number;
+  registerCallbacks?: (
+    toggleCue: (i: number) => void,
+    loop: () => void,
+  ) => void;
 }
 
 function fmt(s: number) {
@@ -279,7 +283,7 @@ function Timeline({
   );
 }
 
-export default function Deck({ label, color, videoRef, state, controls, effectiveVolume }: DeckProps) {
+export default function Deck({ label, color, videoRef, state, controls, effectiveVolume, registerCallbacks }: DeckProps) {
   const [urlInput, setUrlInput] = useState("");
   const [loopA, setLoopA] = useState<number | null>(null);
   const [loopB, setLoopB] = useState<number | null>(null);
@@ -350,6 +354,11 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
     c[i] = null;
     setCues(c);
   };
+
+  // Expose callbacks for keyboard shortcuts
+  useEffect(() => {
+    registerCallbacks?.(toggleCue, setLoopFromCurrent);
+  }); // intentionally no deps — always register latest closures
 
   return (
     <Paper
