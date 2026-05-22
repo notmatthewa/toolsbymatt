@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Box,
   Container,
@@ -8,19 +8,20 @@ import {
   Typography,
 } from "@mui/material";
 import Deck from "./Deck";
-import { useYouTubePlayer } from "./useYouTubePlayer";
+import { useLocalPlayer } from "./useLocalPlayer";
 
 const COLOR_A = "#818cf8";
 const COLOR_B = "#34d399";
 
 export default function YouTubeDJPage() {
-  const deckA = useYouTubePlayer("yt-deck-a");
-  const deckB = useYouTubePlayer("yt-deck-b");
+  const videoRefA = useRef<HTMLVideoElement>(null);
+  const videoRefB = useRef<HTMLVideoElement>(null);
+  const deckA = useLocalPlayer(videoRefA);
+  const deckB = useLocalPlayer(videoRefB);
   const [crossfader, setCrossfader] = useState(0);
   const [volumeA, setVolumeA] = useState(100);
   const [volumeB, setVolumeB] = useState(100);
 
-  // Crossfader multiplier: at 0 both full, at -100 only A, at 100 only B
   const effectiveA = useMemo(
     () => Math.round(volumeA * Math.min(1, (100 - crossfader) / 100)),
     [volumeA, crossfader]
@@ -36,7 +37,7 @@ export default function YouTubeDJPage() {
         YouTube DJ
       </Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Load two YouTube videos and mix them live
+        Load two YouTube videos and mix them live. Videos are downloaded for instant seek and zero buffering.
       </Typography>
 
       <Box
@@ -52,7 +53,7 @@ export default function YouTubeDJPage() {
         <Deck
           label="DECK A"
           color={COLOR_A}
-          divId="yt-deck-a"
+          videoRef={videoRefA}
           state={deckA.state}
           controls={deckA.controls}
           effectiveVolume={effectiveA}
@@ -71,7 +72,6 @@ export default function YouTubeDJPage() {
             minWidth: { md: 160 },
           }}
         >
-          {/* Volume A */}
           <Stack alignItems="center" spacing={0.5}>
             <Typography variant="caption" sx={{ color: COLOR_A, fontWeight: 700 }}>
               VOL A
@@ -85,7 +85,6 @@ export default function YouTubeDJPage() {
             />
           </Stack>
 
-          {/* Crossfader */}
           <Stack alignItems="center" spacing={0.5} sx={{ width: "100%" }}>
             <Typography variant="caption" color="text.secondary" fontWeight={600}>
               CROSSFADER
@@ -108,7 +107,6 @@ export default function YouTubeDJPage() {
             </Stack>
           </Stack>
 
-          {/* Volume B */}
           <Stack alignItems="center" spacing={0.5}>
             <Typography variant="caption" sx={{ color: COLOR_B, fontWeight: 700 }}>
               VOL B
@@ -127,7 +125,7 @@ export default function YouTubeDJPage() {
         <Deck
           label="DECK B"
           color={COLOR_B}
-          divId="yt-deck-b"
+          videoRef={videoRefB}
           state={deckB.state}
           controls={deckB.controls}
           effectiveVolume={effectiveB}
