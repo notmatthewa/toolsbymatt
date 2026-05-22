@@ -112,7 +112,19 @@ function Timeline({
   const loopAPct = loopA !== null && duration ? (loopA / duration) * 100 : null;
   const loopBPct = loopB !== null && duration ? (loopB / duration) * 100 : null;
 
-  const bars = waveform ? waveform.length : 120;
+  // Downsample waveform to a visible number of bars
+  const bars = 80;
+  const downsampled = waveform
+    ? Array.from({ length: bars }, (_, i) => {
+        const srcIdx = Math.floor((i / bars) * waveform.length);
+        const srcEnd = Math.floor(((i + 1) / bars) * waveform.length);
+        let max = 0;
+        for (let j = srcIdx; j < srcEnd && j < waveform.length; j++) {
+          if (waveform[j] > max) max = waveform[j];
+        }
+        return max;
+      })
+    : null;
 
   return (
     <Box sx={{ px: 0.5, py: 0.5, userSelect: "none" }}>
@@ -146,8 +158,8 @@ function Timeline({
           {Array.from({ length: bars }, (_, i) => {
             const pct = (i / bars) * 100;
             const played = pct < progressPct;
-            const h = waveform
-              ? Math.max(8, waveform[i] * 100)
+            const h = downsampled
+              ? Math.max(10, downsampled[i] * 95)
               : 30 + Math.abs(Math.sin(i * 0.7) * 50 + Math.cos(i * 1.3) * 30);
             return (
               <Box
