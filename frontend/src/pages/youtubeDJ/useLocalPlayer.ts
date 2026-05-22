@@ -39,6 +39,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
   const analyserRef = useRef<AnalyserNode | null>(null);
   const connectedRef = useRef(false);
   const volumeRef = useRef(100);
+  const abortRef = useRef<AbortController | null>(null);
 
   const [state, setState] = useState<PlayerState>({
     playing: false,
@@ -67,9 +68,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       audioCtxRef.current = ctx;
       analyserRef.current = analyser;
       connectedRef.current = true;
-    } catch {
-      // Already connected — audio still works via element
-    }
+    } catch {}
   }, [videoRef]);
 
   // Poll playback state + audio level
@@ -104,6 +103,11 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       const videoId = extractVideoId(url);
       if (!videoId) return;
 
+      // Abort any previous in-flight download
+      abortRef.current?.abort();
+      const abort = new AbortController();
+      abortRef.current = abort;
+
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = null;
@@ -120,20 +124,25 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         currentTime: 0,
       }));
 
-      const fullUrl = url.includes("youtube.com") || url.includes("youtu.be")
-        ? url
-        : `https://www.youtube.com/watch?v=${videoId}`;
+      // Always use a clean URL with just the video ID (strips playlist params)
+      const cleanUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
       // Fetch title
-      fetch(`https://noembed.com/embed?url=https://www.youtube.com/watch?v=${videoId}`)
+      fetch(`https://noembed.com/embed?url=${cleanUrl}`)
         .then((r) => r.json())
-        .then((d) => setState((s) => ({ ...s, title: d.title || videoId })))
-        .catch(() => setState((s) => ({ ...s, title: videoId })));
+        .then((d) => {
+          if (!abort.signal.aborted)
+            setState((s) => ({ ...s, title: d.title || videoId }));
+        })
+        .catch(() => {
+          if (!abort.signal.aborted)
+            setState((s) => ({ ...s, title: videoId }));
+        });
 
       try {
-        // Single download — waveform=200 tells backend to include peaks in X-Waveform header
         const resp = await fetch(
-          `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=480&waveform=200`
+          `/api/yt/download?url=${encodeURIComponent(cleanUrl)}&format=mp4&quality=480&waveform=200`,
+          { signal: abort.signal }
         );
         if (!resp.ok) {
           const errData = await resp.json().catch(() => null);
@@ -160,7 +169,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
           }
         }
 
-        // Read waveform from response header (generated server-side from the same file)
+        // Read waveform from response header
         const waveformHeader = resp.headers.get("x-waveform");
         if (waveformHeader) {
           try {
@@ -188,6 +197,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
 
         setState((s) => ({ ...s, loading: false, loadingProgress: "" }));
       } catch (e) {
+        if (abort.signal.aborted) return; // intentional abort, don't update state
         setState((s) => ({
           ...s,
           loading: false,
@@ -236,6 +246,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
 
   useEffect(() => {
     return () => {
+      abortRef.current?.abort();
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       audioCtxRef.current?.close();
     };

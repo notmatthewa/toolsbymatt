@@ -200,7 +200,7 @@ async def yt_info(url: str = Query(...)):
     if not _YT_URL_RE.search(url):
         raise HTTPException(400, "Only YouTube URLs are supported")
 
-    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True, "noplaylist": True}
 
     def extract():
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -239,6 +239,8 @@ async def yt_download(
         "retries": 3,
         "fragment_retries": 3,
         "socket_timeout": 30,
+        "noplaylist": True,
+        "playlistend": 1,
     }
 
     if format == "mp3":
@@ -313,6 +315,8 @@ async def yt_waveform(url: str = Query(...), bars: int = Query(200, ge=50, le=50
         "outtmpl": out_template,
         "retries": 3,
         "fragment_retries": 3,
+        "noplaylist": True,
+        "playlistend": 1,
         "socket_timeout": 30,
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "wav", "preferredquality": "0"}
