@@ -214,9 +214,12 @@ async def yt_download(
         opts = {
             "quiet": True,
             "no_warnings": True,
-            "format": f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]",
+            "format": f"bestvideo[height<={quality}][vcodec^=avc1]+bestaudio[acodec^=mp4a]/bestvideo[height<={quality}]+bestaudio/best[height<={quality}]",
             "outtmpl": out_template,
             "merge_output_format": "mp4",
+            "postprocessors": [
+                {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
+            ],
         }
 
     def download():

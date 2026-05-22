@@ -20,7 +20,7 @@ export interface PlayerState {
   videoId: string | null;
   title: string;
   waveform: Float32Array | null;
-  audioLevel: number; // 0-1 real-time RMS level
+  audioLevel: number;
 }
 
 const WAVEFORM_BARS = 200;
@@ -56,9 +56,8 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
   const blobUrlRef = useRef<string | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const gainRef = useRef<GainNode | null>(null);
   const connectedRef = useRef(false);
+  const volumeRef = useRef(100);
 
   const [state, setState] = useState<PlayerState>({
     playing: false,
@@ -74,30 +73,25 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     audioLevel: 0,
   });
 
-  // Set up Web Audio API when video element is ready
-  const ensureAudioContext = useCallback(() => {
-    if (audioCtxRef.current) return;
-    const ctx = new AudioContext();
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    const gain = ctx.createGain();
-    gain.connect(analyser);
-    analyser.connect(ctx.destination);
-    audioCtxRef.current = ctx;
-    analyserRef.current = analyser;
-    gainRef.current = gain;
-  }, []);
-
-  const connectSource = useCallback(() => {
+  // Connect video to Web Audio (called once on first play)
+  const connectAudio = useCallback(() => {
     const video = videoRef.current;
-    if (!video || connectedRef.current || !audioCtxRef.current || !gainRef.current) return;
+    if (!video || connectedRef.current) return;
+
     try {
-      const source = audioCtxRef.current.createMediaElementSource(video);
-      source.connect(gainRef.current);
-      sourceRef.current = source;
+      const ctx = new AudioContext();
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+
+      const source = ctx.createMediaElementSource(video);
+      source.connect(analyser);
+      analyser.connect(ctx.destination);
+
+      audioCtxRef.current = ctx;
+      analyserRef.current = analyser;
       connectedRef.current = true;
     } catch {
-      // Already connected or cross-origin — ignore
+      // Might fail if already connected — fine, audio still works via element
     }
   }, [videoRef]);
 
@@ -123,7 +117,7 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       setState((s) => ({
         ...s,
         currentTime: video.currentTime || 0,
-        duration: video.duration || 0,
+        duration: isFinite(video.duration) ? video.duration : 0,
         playing: !video.paused && !video.ended,
         audioLevel,
       }));
@@ -150,6 +144,8 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         videoId,
         title: "",
         waveform: null,
+        duration: 0,
+        currentTime: 0,
       }));
 
       // Fetch title
@@ -159,13 +155,19 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         .catch(() => setState((s) => ({ ...s, title: videoId })));
 
       try {
-        // Download video via backend
-        const resp = await fetch(
-          `/api/yt/download?url=${encodeURIComponent(url)}&format=mp4&quality=720`
-        );
-        if (!resp.ok) throw new Error("Download failed");
+        const fullUrl = url.includes("youtube.com") || url.includes("youtu.be")
+          ? url
+          : `https://www.youtube.com/watch?v=${videoId}`;
 
-        // Track progress
+        const resp = await fetch(
+          `/api/yt/download?url=${encodeURIComponent(fullUrl)}&format=mp4&quality=720`
+        );
+        if (!resp.ok) {
+          const errData = await resp.json().catch(() => null);
+          throw new Error(errData?.detail || `Download failed (${resp.status})`);
+        }
+
+        // Stream response and track progress
         const contentLength = resp.headers.get("content-length");
         const total = contentLength ? parseInt(contentLength) : 0;
         const reader = resp.body!.getReader();
@@ -190,28 +192,40 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         const blobUrl = URL.createObjectURL(blob);
         blobUrlRef.current = blobUrl;
 
+        // Load video element
         const video = videoRef.current;
         if (video) {
-          video.src = blobUrl;
-          video.load();
+          // Wait for metadata to load before marking as ready
+          await new Promise<void>((resolve, reject) => {
+            const onLoaded = () => {
+              video.removeEventListener("loadedmetadata", onLoaded);
+              video.removeEventListener("error", onError);
+              resolve();
+            };
+            const onError = () => {
+              video.removeEventListener("loadedmetadata", onLoaded);
+              video.removeEventListener("error", onError);
+              reject(new Error("Video failed to load — format may not be supported"));
+            };
+            video.addEventListener("loadedmetadata", onLoaded);
+            video.addEventListener("error", onError);
+            video.src = blobUrl;
+            video.load();
+          });
 
-          // Set up audio context + connect
-          ensureAudioContext();
-          connectSource();
-          if (audioCtxRef.current?.state === "suspended") {
-            audioCtxRef.current.resume();
-          }
+          // Apply current volume
+          video.volume = volumeRef.current / 100;
         }
 
-        // Generate waveform from audio data
+        // Generate waveform in background
         setState((s) => ({ ...s, loadingProgress: "Generating waveform..." }));
         try {
-          const audioCtx = new AudioContext();
+          const waveformCtx = new AudioContext();
           const arrayBuffer = await blob.arrayBuffer();
-          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          const audioBuffer = await waveformCtx.decodeAudioData(arrayBuffer);
           const waveform = computeWaveform(audioBuffer, WAVEFORM_BARS);
           setState((s) => ({ ...s, waveform }));
-          audioCtx.close();
+          waveformCtx.close();
         } catch {
           // Waveform generation failed — not critical
         }
@@ -225,35 +239,37 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
         }));
       }
     },
-    [videoRef, ensureAudioContext, connectSource]
+    [videoRef]
   );
 
   const play = useCallback(() => {
     const video = videoRef.current;
-    if (!video) return;
-    ensureAudioContext();
-    connectSource();
+    if (!video || !video.src) return;
+
+    // Connect audio on first play (needs user gesture for AudioContext)
+    connectAudio();
     if (audioCtxRef.current?.state === "suspended") {
       audioCtxRef.current.resume();
     }
-    video.play();
-  }, [videoRef, ensureAudioContext, connectSource]);
+
+    video.play().catch(() => {
+      // Autoplay blocked — user needs to interact
+    });
+  }, [videoRef, connectAudio]);
 
   const pause = useCallback(() => videoRef.current?.pause(), [videoRef]);
 
   const seekTo = useCallback(
     (seconds: number) => {
       const video = videoRef.current;
-      if (video) video.currentTime = seconds;
+      if (video && isFinite(seconds)) video.currentTime = seconds;
     },
     [videoRef]
   );
 
   const setVolume = useCallback(
     (vol: number) => {
-      if (gainRef.current) {
-        gainRef.current.gain.value = vol / 100;
-      }
+      volumeRef.current = vol;
       const video = videoRef.current;
       if (video) video.volume = vol / 100;
       setState((s) => ({ ...s, volume: vol }));
