@@ -15,6 +15,22 @@
       "url": "/apps/restaurant-wheel",
       "icon": "Restaurant",
       "tags": ["food", "random", "location", "fun"]
+    },
+    {
+      "id": "youtube-downloader",
+      "name": "YouTube Downloader",
+      "description": "Download YouTube videos as MP3 audio or MP4 video in up to full HD",
+      "url": "/apps/youtube-downloader",
+      "icon": "Download",
+      "tags": ["youtube", "video", "audio", "download"]
+    },
+    {
+      "id": "youtube-dj",
+      "name": "YouTube DJ",
+      "description": "Two-deck DJ mixer with crossfader, speed control, looping, and live video playback",
+      "url": "/apps/youtube-dj",
+      "icon": "QueueMusic",
+      "tags": ["youtube", "music", "dj", "mixer", "fun"]
     }
   ]
 }

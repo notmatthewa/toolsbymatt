@@ -1,5 +1,8 @@
+import asyncio
 import json
 import os
+import re
+import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,9 +11,10 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent.parent / ".env")
 
 import httpx
+import yt_dlp
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -82,7 +86,8 @@ _SYNONYM_GROUPS = [
     {"measure", "ruler", "scale", "size", "dimension", "length", "distance"},
     {"random", "spin", "wheel", "pick", "choose", "roulette"},
     {"location", "map", "place", "nearby", "local", "drive"},
-    {"perspective", "3d", "angle", "depth"},
+    {"perspective", "3d", "angle", "depth", "height"},
+    {"youtube", "video", "audio", "music", "mp3", "mp4", "download", "dj", "mixer", "song"},
 ]
 
 _SYNONYMS: dict[str, set[str]] = {}
@@ -149,6 +154,99 @@ async def geocode(q: str = Query(min_length=1)):
     if resp.status_code != 200:
         raise HTTPException(resp.status_code, resp.text)
     return resp.json()
+
+
+# ---------- YouTube Downloader ----------
+
+_YT_URL_RE = re.compile(r"(youtube\.com|youtu\.be)")
+
+
+@app.get("/api/yt/info")
+async def yt_info(url: str = Query(...)):
+    if not _YT_URL_RE.search(url):
+        raise HTTPException(400, "Only YouTube URLs are supported")
+
+    opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+
+    def extract():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(url, download=False)
+
+    try:
+        info = await asyncio.to_thread(extract)
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(400, str(e))
+
+    return {
+        "title": info.get("title"),
+        "thumbnail": info.get("thumbnail"),
+        "duration": info.get("duration"),
+        "id": info.get("id"),
+    }
+
+
+@app.get("/api/yt/download")
+async def yt_download(
+    url: str = Query(...),
+    format: str = Query("mp3", pattern="^(mp3|mp4)$"),
+    quality: int = Query(1080, ge=360, le=2160),
+):
+    if not _YT_URL_RE.search(url):
+        raise HTTPException(400, "Only YouTube URLs are supported")
+
+    tmp_dir = tempfile.mkdtemp()
+    out_template = os.path.join(tmp_dir, "%(title)s.%(ext)s")
+
+    if format == "mp3":
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": "bestaudio/best",
+            "outtmpl": out_template,
+            "postprocessors": [
+                {"key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192"}
+            ],
+        }
+    else:
+        opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "format": f"bestvideo[height<={quality}]+bestaudio/best[height<={quality}]",
+            "outtmpl": out_template,
+            "merge_output_format": "mp4",
+        }
+
+    def download():
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            ydl.download([url])
+
+    try:
+        await asyncio.to_thread(download)
+    except yt_dlp.utils.DownloadError as e:
+        raise HTTPException(400, str(e))
+
+    # Find the output file
+    files = list(Path(tmp_dir).iterdir())
+    if not files:
+        raise HTTPException(500, "Download produced no output")
+    out_file = files[0]
+
+    def stream():
+        try:
+            with open(out_file, "rb") as f:
+                while chunk := f.read(65536):
+                    yield chunk
+        finally:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    media_type = "audio/mpeg" if format == "mp3" else "video/mp4"
+    filename = out_file.name
+    return StreamingResponse(
+        stream(),
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------- Static files (production: built frontend served by FastAPI) ----------

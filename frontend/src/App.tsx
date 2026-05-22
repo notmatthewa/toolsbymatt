@@ -6,6 +6,8 @@ import SearchDialog from "./components/SearchDialog";
 import HomePage from "./pages/HomePage";
 import ScaleSnapPage from "./pages/ScaleSnapPage";
 import RestaurantWheelPage from "./pages/restaurantWheel/RestaurantWheelPage";
+import YouTubeDownloaderPage from "./pages/youtubeDownloader/YouTubeDownloaderPage";
+import YouTubeDJPage from "./pages/youtubeDJ/YouTubeDJPage";
 
 export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
@@ -26,6 +28,8 @@ export default function App() {
           <Route path="/" element={<HomePage />} />
           <Route path="/apps/scalesnap" element={<ScaleSnapPage />} />
         <Route path="/apps/restaurant-wheel" element={<RestaurantWheelPage />} />
+          <Route path="/apps/youtube-downloader" element={<YouTubeDownloaderPage />} />
+          <Route path="/apps/youtube-dj" element={<YouTubeDJPage />} />
         </Routes>
       </Box>
     </Box>
