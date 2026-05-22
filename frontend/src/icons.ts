@@ -10,6 +10,7 @@ import Calculate from "@mui/icons-material/Calculate";
 import RestaurantIcon from "@mui/icons-material/Restaurant";
 import Download from "@mui/icons-material/Download";
 import QueueMusic from "@mui/icons-material/QueueMusic";
+import SwapHoriz from "@mui/icons-material/SwapHoriz";
 
 // Add new icons here as you add apps to apps.json
 export const iconMap: Record<string, SvgIconComponent> = {
@@ -24,4 +25,5 @@ export const iconMap: Record<string, SvgIconComponent> = {
   Restaurant: RestaurantIcon,
   Download,
   QueueMusic,
+  SwapHoriz,
 };

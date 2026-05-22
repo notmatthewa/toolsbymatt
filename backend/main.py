@@ -1,8 +1,10 @@
 import asyncio
+import io
 import json
 import os
 import re
 import tempfile
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -12,9 +14,9 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 import httpx
 import yt_dlp
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -88,6 +90,7 @@ _SYNONYM_GROUPS = [
     {"location", "map", "place", "nearby", "local", "drive"},
     {"perspective", "3d", "angle", "depth", "height"},
     {"youtube", "video", "audio", "music", "mp3", "mp4", "download", "dj", "mixer", "song"},
+    {"file", "convert", "powerpoint", "pptx", "pdf", "image", "extract", "slides", "presentation"},
 ]
 
 _SYNONYMS: dict[str, set[str]] = {}
@@ -246,6 +249,112 @@ async def yt_download(
         stream(),
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ---------- File Converter ----------
+
+def _extract_images_pptx(data: bytes) -> list[tuple[str, bytes]]:
+    """Extract all images from a PowerPoint file."""
+    from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+
+    prs = Presentation(io.BytesIO(data))
+    images: list[tuple[str, bytes]] = []
+    idx = 0
+    for slide_num, slide in enumerate(prs.slides, 1):
+        for shape in slide.shapes:
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                img = shape.image
+                ext = img.content_type.split("/")[-1].replace("jpeg", "jpg")
+                idx += 1
+                images.append((f"slide{slide_num:02d}_{idx:03d}.{ext}", img.blob))
+            elif shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+                for s in shape.shapes:
+                    if hasattr(s, "image"):
+                        img = s.image
+                        ext = img.content_type.split("/")[-1].replace("jpeg", "jpg")
+                        idx += 1
+                        images.append((f"slide{slide_num:02d}_{idx:03d}.{ext}", img.blob))
+    return images
+
+
+def _extract_images_pdf(data: bytes) -> list[tuple[str, bytes]]:
+    """Extract images from a PDF, or render pages as images."""
+    import fitz  # pymupdf
+
+    doc = fitz.open(stream=data, filetype="pdf")
+    images: list[tuple[str, bytes]] = []
+    for page_num, page in enumerate(doc, 1):
+        # Render page as PNG (ensures we always get output even if no embedded images)
+        pix = page.get_pixmap(dpi=200)
+        images.append((f"page{page_num:03d}.png", pix.tobytes("png")))
+    return images
+
+
+def _convert_image(data: bytes, target_format: str) -> tuple[str, bytes]:
+    """Convert an image to the target format."""
+    from PIL import Image
+
+    img = Image.open(io.BytesIO(data))
+    if img.mode == "RGBA" and target_format.lower() in ("jpg", "jpeg"):
+        img = img.convert("RGB")
+    buf = io.BytesIO()
+    fmt_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP", "gif": "GIF"}
+    img.save(buf, format=fmt_map.get(target_format.lower(), "PNG"))
+    return f"converted.{target_format}", buf.getvalue()
+
+
+@app.post("/api/convert")
+async def convert_file(
+    file: UploadFile = File(...),
+    target: str = Query("images", pattern="^(images|png|jpg|pdf)$"),
+):
+    data = await file.read()
+    filename = file.filename or "file"
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+    results: list[tuple[str, bytes]] = []
+
+    if ext in ("pptx", "ppt"):
+        results = await asyncio.to_thread(_extract_images_pptx, data)
+    elif ext == "pdf":
+        results = await asyncio.to_thread(_extract_images_pdf, data)
+    elif ext in ("png", "jpg", "jpeg", "webp", "gif", "bmp", "tiff", "heic"):
+        if target in ("png", "jpg"):
+            name, converted = await asyncio.to_thread(_convert_image, data, target)
+            results = [(name, converted)]
+        else:
+            results = [(filename, data)]
+    else:
+        raise HTTPException(400, f"Unsupported file type: .{ext}")
+
+    if not results:
+        raise HTTPException(400, "No content could be extracted")
+
+    # Single file: return directly
+    if len(results) == 1:
+        name, content = results[0]
+        ext_out = name.rsplit(".", 1)[-1]
+        media_types = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                       "gif": "image/gif", "webp": "image/webp", "pdf": "application/pdf"}
+        return Response(
+            content,
+            media_type=media_types.get(ext_out, "application/octet-stream"),
+            headers={"Content-Disposition": f'attachment; filename="{name}"'},
+        )
+
+    # Multiple files: zip them
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, content in results:
+            zf.writestr(name, content)
+    buf.seek(0)
+    stem = filename.rsplit(".", 1)[0]
+    return Response(
+        buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{stem}_images.zip"'},
     )
 
 

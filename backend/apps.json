@@ -31,6 +31,14 @@
       "url": "/apps/youtube-dj",
       "icon": "QueueMusic",
       "tags": ["youtube", "music", "dj", "mixer", "fun"]
+    },
+    {
+      "id": "file-converter",
+      "name": "File Converter",
+      "description": "Extract images from PowerPoint and PDF files, or convert between image formats",
+      "url": "/apps/file-converter",
+      "icon": "SwapHoriz",
+      "tags": ["file", "convert", "powerpoint", "pdf", "image", "extract"]
     }
   ]
 }
