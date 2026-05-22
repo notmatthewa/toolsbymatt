@@ -496,19 +496,25 @@ def _convert_with_ffmpeg(data: bytes, in_ext: str, out_ext: str, filename: str) 
 def _convert_image(data: bytes, target_format: str) -> tuple[str, bytes]:
     from PIL import Image
 
-    img = Image.open(io.BytesIO(data))
-    if target_format.lower() == "pdf":
-        if img.mode == "RGBA":
+    try:
+        img = Image.open(io.BytesIO(data))
+        if target_format.lower() == "pdf":
+            if img.mode == "RGBA":
+                img = img.convert("RGB")
+            buf = io.BytesIO()
+            img.save(buf, format="PDF")
+            return "converted.pdf", buf.getvalue()
+        if img.mode == "RGBA" and target_format.lower() in ("jpg", "jpeg"):
             img = img.convert("RGB")
         buf = io.BytesIO()
-        img.save(buf, format="PDF")
-        return "converted.pdf", buf.getvalue()
-    if img.mode == "RGBA" and target_format.lower() in ("jpg", "jpeg"):
-        img = img.convert("RGB")
-    buf = io.BytesIO()
-    fmt_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP", "gif": "GIF"}
-    img.save(buf, format=fmt_map.get(target_format.lower(), "PNG"))
-    return f"converted.{target_format}", buf.getvalue()
+        fmt_map = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "webp": "WEBP", "gif": "GIF"}
+        img.save(buf, format=fmt_map.get(target_format.lower(), "PNG"))
+        return f"converted.{target_format}", buf.getvalue()
+    except Exception:
+        # Pillow can't open it (HEIC, AVIF, etc.) — fall back to ffmpeg
+        if not _FFMPEG:
+            raise
+        return _convert_with_ffmpeg(data, "img", target_format, f"image.{target_format}")
 
 
 @app.get("/api/convert/formats")
