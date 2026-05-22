@@ -1,20 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Box,
-  Button,
   CircularProgress,
   IconButton,
   Paper,
   Slider,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import PauseIcon from "@mui/icons-material/Pause";
-import ReplayIcon from "@mui/icons-material/Replay";
-import SpeedIcon from "@mui/icons-material/Speed";
+import SkipPreviousIcon from "@mui/icons-material/SkipPrevious";
 import RepeatIcon from "@mui/icons-material/Repeat";
+import SpeedIcon from "@mui/icons-material/Speed";
 import type { PlayerControls, PlayerState } from "./useLocalPlayer";
 
 interface DeckProps {
@@ -60,7 +60,6 @@ function Timeline({
   looping,
   color,
   waveform,
-  audioLevel,
   onSeek,
   onLoopChange,
 }: {
@@ -71,18 +70,15 @@ function Timeline({
   looping: boolean;
   color: string;
   waveform: number[] | null;
-  audioLevel: number;
   onSeek: (t: number) => void;
   onLoopChange: (start: number, end: number) => void;
 }) {
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState<"seek" | "loopA" | "loopB" | null>(null);
-
-  // Zoom: visible time window
   const [viewStart, setViewStart] = useState(0);
   const [viewEnd, setViewEnd] = useState(0);
+  const [middleDrag, setMiddleDrag] = useState<{ startX: number; origStart: number; origEnd: number } | null>(null);
 
-  // Reset view when duration changes
   useEffect(() => {
     if (duration > 0) { setViewStart(0); setViewEnd(duration); }
   }, [duration]);
@@ -90,13 +86,11 @@ function Timeline({
   const viewDur = (viewEnd || duration) - viewStart;
   const isZoomed = duration > 0 && viewDur < duration - 0.1;
 
-  // Map time to percentage within the visible window
   const timeToPct = useCallback(
     (t: number) => viewDur > 0 ? ((t - viewStart) / viewDur) * 100 : 0,
     [viewStart, viewDur]
   );
 
-  // Map clientX to time within visible window
   const getTimeFromX = useCallback(
     (clientX: number) => {
       const el = trackRef.current;
@@ -108,47 +102,83 @@ function Timeline({
     [viewStart, viewDur, duration]
   );
 
-  // Scroll to zoom
+  // Scroll to zoom, shift+scroll to pan
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault();
       if (!duration || !trackRef.current) return;
+
+      if (e.shiftKey) {
+        // Pan
+        const panAmount = (e.deltaY / 500) * viewDur;
+        let newStart = viewStart + panAmount;
+        let newEnd = viewEnd + panAmount;
+        if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+        if (newEnd > duration) { newStart -= newEnd - duration; newEnd = duration; }
+        setViewStart(Math.max(0, newStart));
+        setViewEnd(Math.min(duration, newEnd));
+        return;
+      }
+
+      // Zoom
       const rect = trackRef.current.getBoundingClientRect();
       const mouseFrac = (e.clientX - rect.left) / rect.width;
       const mouseTime = viewStart + mouseFrac * viewDur;
-
-      const zoomFactor = e.deltaY > 0 ? 1.3 : 0.7; // scroll down = zoom out
+      const zoomFactor = e.deltaY > 0 ? 1.3 : 0.7;
       const newDur = Math.max(2, Math.min(duration, viewDur * zoomFactor));
-
-      // Keep mouseTime at the same screen fraction
       let newStart = mouseTime - mouseFrac * newDur;
       let newEnd = mouseTime + (1 - mouseFrac) * newDur;
-
-      // Clamp
       if (newStart < 0) { newEnd -= newStart; newStart = 0; }
       if (newEnd > duration) { newStart -= newEnd - duration; newEnd = duration; }
-      newStart = Math.max(0, newStart);
-
-      setViewStart(newStart);
-      setViewEnd(newEnd);
+      setViewStart(Math.max(0, newStart));
+      setViewEnd(Math.min(duration, newEnd));
     },
-    [duration, viewStart, viewDur]
+    [duration, viewStart, viewEnd, viewDur]
   );
+
+  // Middle mouse drag to pan
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button === 1) {
+        e.preventDefault();
+        setMiddleDrag({ startX: e.clientX, origStart: viewStart, origEnd: viewEnd });
+      }
+    },
+    [viewStart, viewEnd]
+  );
+
+  useEffect(() => {
+    if (!middleDrag) return;
+    const onMove = (e: MouseEvent) => {
+      const el = trackRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const dx = e.clientX - middleDrag.startX;
+      const timeDelta = -(dx / rect.width) * viewDur;
+      let newStart = middleDrag.origStart + timeDelta;
+      let newEnd = middleDrag.origEnd + timeDelta;
+      if (newStart < 0) { newEnd -= newStart; newStart = 0; }
+      if (newEnd > duration) { newStart -= newEnd - duration; newEnd = duration; }
+      setViewStart(Math.max(0, newStart));
+      setViewEnd(Math.min(duration, newEnd));
+    };
+    const onUp = () => setMiddleDrag(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [middleDrag, viewDur, duration]);
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!duration) return;
+      if (!duration || e.button === 1) return;
       const el = trackRef.current;
       if (!el) return;
       el.setPointerCapture(e.pointerId);
       const rect = el.getBoundingClientRect();
-
-      // Check loop handles in pixel space (within 12px)
       const loopAPx = timeToPct(loopStart) / 100 * rect.width + rect.left;
       const loopBPx = timeToPct(loopEnd) / 100 * rect.width + rect.left;
       if (Math.abs(e.clientX - loopAPx) < 12) { setDragging("loopA"); return; }
       if (Math.abs(e.clientX - loopBPx) < 12) { setDragging("loopB"); return; }
-
       setDragging("seek");
       onSeek(getTimeFromX(e.clientX));
     },
@@ -172,7 +202,6 @@ function Timeline({
   const startPct = timeToPct(loopStart);
   const endPct = timeToPct(loopEnd || duration);
 
-  // Waveform bars — sample from the visible window
   const BARS = 100;
   const bars = waveform
     ? Array.from({ length: BARS }, (_, i) => {
@@ -199,28 +228,21 @@ function Timeline({
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
         onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onContextMenu={(e) => e.preventDefault()}
         sx={{
           position: "relative",
           height: 56,
           bgcolor: "rgba(255,255,255,0.02)",
           borderRadius: 1,
           overflow: "hidden",
-          cursor: "pointer",
+          cursor: middleDrag ? "grabbing" : "pointer",
           border: "1px solid",
           borderColor: isZoomed ? `${color}44` : "rgba(255,255,255,0.1)",
         }}
       >
         {/* Waveform bars */}
-        <Box
-          sx={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            gap: "1.5px",
-            px: "3px",
-          }}
-        >
+        <Box sx={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", gap: "1.5px", px: "3px" }}>
           {Array.from({ length: BARS }, (_, i) => {
             const pct = (i / BARS) * 100;
             const played = pct < progressPct;
@@ -231,67 +253,44 @@ function Timeline({
               <Box
                 key={i}
                 sx={{
-                  flex: 1,
-                  height: `${Math.min(h, 98)}%`,
+                  flex: 1, height: `${Math.min(h, 98)}%`,
                   bgcolor: played ? color : "rgba(255,255,255,0.15)",
-                  borderRadius: "2px",
-                  opacity: played ? 1 : 0.5,
+                  borderRadius: "2px", opacity: played ? 1 : 0.5,
                 }}
               />
             );
           })}
         </Box>
 
-        {/* Loop region overlay — always visible */}
+        {/* Loop region */}
         {startPct < 100 && endPct > 0 && (
-          <Box
-            sx={{
-              position: "absolute",
-              top: 0, bottom: 0,
-              left: `${Math.max(0, startPct)}%`,
-              width: `${Math.min(100, endPct) - Math.max(0, startPct)}%`,
-              bgcolor: regionBg,
-              borderLeft: startPct >= 0 ? `2px solid ${handleColor}` : "none",
-              borderRight: endPct <= 100 ? `2px solid ${handleColor}` : "none",
-              pointerEvents: "none",
-            }}
-          />
+          <Box sx={{
+            position: "absolute", top: 0, bottom: 0,
+            left: `${Math.max(0, startPct)}%`,
+            width: `${Math.min(100, endPct) - Math.max(0, startPct)}%`,
+            bgcolor: regionBg,
+            borderLeft: startPct >= 0 ? `2px solid ${handleColor}` : "none",
+            borderRight: endPct <= 100 ? `2px solid ${handleColor}` : "none",
+            pointerEvents: "none",
+          }} />
         )}
 
-        {/* Loop handle A */}
-        {startPct >= -5 && startPct <= 105 && (
-          <Box
-            sx={{
+        {/* Loop handles */}
+        {[startPct, endPct].map((pct, idx) =>
+          pct >= -5 && pct <= 105 ? (
+            <Box key={idx} sx={{
               position: "absolute", top: 0, bottom: 0,
-              left: `${startPct}%`, width: 20, ml: "-10px",
+              left: `${pct}%`, width: 20, ml: "-10px",
               cursor: "ew-resize", display: "flex", alignItems: "center",
               justifyContent: "center", zIndex: 3,
-            }}
-          >
-            <Box sx={{
-              width: 6, height: "60%", borderRadius: 1,
-              bgcolor: handleColor,
-              boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
-            }} />
-          </Box>
-        )}
-
-        {/* Loop handle B */}
-        {endPct >= -5 && endPct <= 105 && (
-          <Box
-            sx={{
-              position: "absolute", top: 0, bottom: 0,
-              left: `${endPct}%`, width: 20, ml: "-10px",
-              cursor: "ew-resize", display: "flex", alignItems: "center",
-              justifyContent: "center", zIndex: 3,
-            }}
-          >
-            <Box sx={{
-              width: 6, height: "60%", borderRadius: 1,
-              bgcolor: handleColor,
-              boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
-            }} />
-          </Box>
+            }}>
+              <Box sx={{
+                width: 6, height: "60%", borderRadius: 1,
+                bgcolor: handleColor,
+                boxShadow: looping ? `0 0 8px ${ORANGE}` : `0 0 4px rgba(251,146,60,0.3)`,
+              }} />
+            </Box>
+          ) : null
         )}
 
         {/* Playhead */}
@@ -306,22 +305,22 @@ function Timeline({
       </Box>
 
       {/* Time display */}
-      <Stack direction="row" justifyContent="space-between" sx={{ mt: 0.5 }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 0.5 }}>
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
           {fmt(currentTime)}
         </Typography>
         <Typography variant="caption" sx={{ fontSize: 10, color: ORANGE }}>
           {fmt(loopStart)}→{fmt(loopEnd || duration)}
         </Typography>
-        {isZoomed && (
+        {isZoomed ? (
           <Typography
             variant="caption"
-            sx={{ fontSize: 10, color: color, cursor: "pointer" }}
+            sx={{ fontSize: 10, color: color, cursor: "pointer", textDecoration: "underline" }}
             onClick={() => { setViewStart(0); setViewEnd(duration); }}
           >
-            Reset zoom
+            reset
           </Typography>
-        )}
+        ) : null}
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11 }}>
           {fmt(duration)}
         </Typography>
@@ -343,11 +342,8 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
     loopRef.current = { looping, loopStart, loopEnd };
   }, [looping, loopStart, loopEnd]);
 
-  // Initialize loop end to full duration when video loads
   useEffect(() => {
-    if (state.duration > 0 && loopEnd === 0) {
-      setLoopEnd(state.duration);
-    }
+    if (state.duration > 0 && loopEnd === 0) setLoopEnd(state.duration);
   }, [state.duration, loopEnd]);
 
   useEffect(() => {
@@ -355,7 +351,6 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
     controls.setVolume(effectiveVolume);
   }, [effectiveVolume]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Loop enforcement
   useEffect(() => {
     const { looping, loopStart, loopEnd } = loopRef.current;
     if (looping && loopEnd > loopStart && state.currentTime >= loopEnd) {
@@ -366,37 +361,27 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
   const load = () => {
     const id = extractVideoId(urlInput);
     if (!id) return;
-    setLoopStart(0);
-    setLoopEnd(0);
-    setLooping(false);
+    setLoopStart(0); setLoopEnd(0); setLooping(false);
     setCues([null, null, null, null]);
     controls.loadVideo(urlInput);
   };
 
   const handleLoopChange = useCallback((start: number, end: number) => {
-    setLoopStart(start);
-    setLoopEnd(end);
+    setLoopStart(start); setLoopEnd(end);
   }, []);
 
   const toggleLooping = () => setLooping(!looping);
 
   const toggleCue = (i: number) => {
     const c = [...cues];
-    if (c[i] !== null) {
-      controls.seekTo(c[i]!);
-    } else {
-      c[i] = state.currentTime;
-      setCues(c);
-    }
+    if (c[i] !== null) { controls.seekTo(c[i]!); }
+    else { c[i] = state.currentTime; setCues(c); }
   };
 
   const clearCue = (i: number) => {
-    const c = [...cues];
-    c[i] = null;
-    setCues(c);
+    const c = [...cues]; c[i] = null; setCues(c);
   };
 
-  // Expose callbacks for keyboard shortcuts
   useEffect(() => {
     registerCallbacks?.(toggleCue, toggleLooping);
   }); // intentionally no deps
@@ -405,22 +390,15 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
     <Paper
       variant="outlined"
       sx={{
-        p: 1.5,
-        display: "flex",
-        flexDirection: "column",
-        gap: 0.5,
-        flex: 1,
-        minWidth: 0,
-        borderColor: color,
-        borderWidth: 2,
+        p: 1.5, display: "flex", flexDirection: "column", gap: 0.5,
+        flex: 1, minWidth: 0, borderColor: color, borderWidth: 2,
       }}
     >
-      <Typography variant="subtitle2" sx={{ color, fontWeight: 700 }}>
-        {label}
-      </Typography>
-
-      {/* URL Input */}
-      <Stack direction="row" spacing={0.5}>
+      {/* Header + URL */}
+      <Stack direction="row" spacing={0.5} alignItems="center">
+        <Typography variant="subtitle2" sx={{ color, fontWeight: 700, mr: 0.5 }}>
+          {label}
+        </Typography>
         <TextField
           size="small"
           placeholder="YouTube URL..."
@@ -428,47 +406,25 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
           onChange={(e) => setUrlInput(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") load(); }}
           sx={{ flex: 1 }}
-          slotProps={{ input: { sx: { fontSize: 13 } } }}
+          slotProps={{ input: { sx: { fontSize: 12, py: 0.5 } } }}
           disabled={state.loading}
         />
-        <Button size="small" variant="outlined" onClick={load} sx={{ minWidth: 50 }} disabled={state.loading}>
-          Load
-        </Button>
+        <IconButton size="small" onClick={load} disabled={state.loading} sx={{ color }}>
+          <PlayArrowIcon fontSize="small" />
+        </IconButton>
       </Stack>
 
       {/* Video Player */}
-      <Box
-        sx={{
-          position: "relative",
-          width: "100%",
-          paddingTop: "56.25%",
-          bgcolor: "#000",
-          borderRadius: 1,
-          overflow: "hidden",
-        }}
-      >
+      <Box sx={{ position: "relative", width: "100%", paddingTop: "56.25%", bgcolor: "#000", borderRadius: 1, overflow: "hidden" }}>
         <video
           ref={videoRef}
-          style={{
-            position: "absolute",
-            top: 0, left: 0, width: "100%", height: "100%",
-            objectFit: "contain",
-          }}
+          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "contain" }}
           playsInline
         />
         {state.loading && (
-          <Box
-            sx={{
-              position: "absolute", inset: 0,
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center",
-              bgcolor: "rgba(0,0,0,0.7)", gap: 1,
-            }}
-          >
+          <Box sx={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", bgcolor: "rgba(0,0,0,0.7)", gap: 1 }}>
             <CircularProgress size={32} sx={{ color }} />
-            <Typography variant="caption" sx={{ color: "text.secondary", fontSize: 12 }}>
-              {state.loadingProgress}
-            </Typography>
+            <Typography variant="caption" sx={{ color: "text.secondary", fontSize: 12 }}>{state.loadingProgress}</Typography>
           </Box>
         )}
       </Box>
@@ -480,7 +436,7 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         </Typography>
       )}
 
-      {/* Timeline with always-visible loop handles */}
+      {/* Timeline */}
       <Timeline
         currentTime={state.currentTime}
         duration={state.duration}
@@ -489,45 +445,49 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
         looping={looping}
         color={color}
         waveform={state.waveform}
-        audioLevel={state.audioLevel}
         onSeek={controls.seekTo}
         onLoopChange={handleLoopChange}
       />
 
-      {/* Transport + Loop toggle */}
-      <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="center">
-        <IconButton
-          size="small"
-          onClick={() => (state.playing ? controls.pause() : controls.play())}
-          sx={{ color }}
-          disabled={!state.videoId || state.loading}
-        >
-          {state.playing ? <PauseIcon /> : <PlayArrowIcon />}
-        </IconButton>
-        <IconButton size="small" onClick={() => controls.seekTo(0)} sx={{ color: "text.secondary" }}>
-          <ReplayIcon fontSize="small" />
-        </IconButton>
-        <Box sx={{ width: 8 }} />
-        <Button
-          size="small"
-          variant={looping ? "contained" : "outlined"}
-          startIcon={<RepeatIcon sx={{ fontSize: 14 }} />}
-          onClick={toggleLooping}
-          sx={{
-            fontSize: 11, px: 1.5,
-            bgcolor: looping ? ORANGE_ACTIVE : undefined,
-            borderColor: ORANGE,
-            color: looping ? "#000" : ORANGE,
-            "&:hover": { bgcolor: looping ? ORANGE : `${ORANGE}22` },
-          }}
-        >
-          {looping ? "LOOP ON" : "LOOP"}
-        </Button>
-      </Stack>
+      {/* Controls row: play, restart, loop, speed, cues — all compact */}
+      <Stack direction="row" spacing={0.25} alignItems="center" sx={{ flexWrap: "wrap", gap: 0.25 }}>
+        {/* Transport */}
+        <Tooltip title={state.playing ? "Pause" : "Play"} arrow>
+          <IconButton
+            size="small"
+            onClick={() => (state.playing ? controls.pause() : controls.play())}
+            sx={{ color, bgcolor: `${color}15`, "&:hover": { bgcolor: `${color}25` } }}
+            disabled={!state.videoId || state.loading}
+          >
+            {state.playing ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
+        <Tooltip title="Restart" arrow>
+          <IconButton size="small" onClick={() => controls.seekTo(0)} sx={{ color: "text.secondary" }}>
+            <SkipPreviousIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
 
-      {/* Speed */}
-      <Stack direction="row" spacing={1} alignItems="center" sx={{ px: 0.5 }}>
-        <SpeedIcon sx={{ fontSize: 16, color: "text.secondary" }} />
+        {/* Loop */}
+        <Tooltip title={looping ? "Loop ON (click to disable)" : "Enable loop"} arrow>
+          <IconButton
+            size="small"
+            onClick={toggleLooping}
+            sx={{
+              color: looping ? "#000" : ORANGE,
+              bgcolor: looping ? ORANGE_ACTIVE : `${ORANGE}15`,
+              "&:hover": { bgcolor: looping ? ORANGE : `${ORANGE}25` },
+            }}
+          >
+            <RepeatIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+
+        {/* Divider */}
+        <Box sx={{ width: 1, height: 20, bgcolor: "divider", mx: 0.5 }} />
+
+        {/* Speed */}
+        <SpeedIcon sx={{ fontSize: 14, color: "text.secondary" }} />
         <Slider
           value={state.speed}
           min={0.25}
@@ -535,33 +495,35 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
           step={0.05}
           onChange={(_, v) => controls.setSpeed(v as number)}
           size="small"
-          sx={{ flex: 1, color }}
+          sx={{ width: 80, color, mx: 0.5 }}
           valueLabelDisplay="auto"
           valueLabelFormat={(v) => `${v.toFixed(2)}x`}
         />
-        <Typography variant="caption" sx={{ minWidth: 38, textAlign: "right" }}>
+        <Typography variant="caption" sx={{ fontSize: 10, color: "text.secondary", minWidth: 30 }}>
           {state.speed.toFixed(2)}x
         </Typography>
-      </Stack>
 
-      {/* Cue Points */}
-      <Stack direction="row" spacing={0.5}>
+        <Box sx={{ flex: 1 }} />
+
+        {/* Cues — compact numbered buttons */}
         {cues.map((c, i) => (
-          <Button
-            key={i}
-            size="small"
-            variant={c !== null ? "contained" : "outlined"}
-            onClick={() => toggleCue(i)}
-            onContextMenu={(e) => { e.preventDefault(); clearCue(i); }}
-            sx={{
-              flex: 1, minWidth: 0, fontSize: 10, px: 0.5,
-              bgcolor: c !== null ? color : undefined,
-              borderColor: color,
-              "&:hover": { bgcolor: c !== null ? color : undefined, opacity: 0.8 },
-            }}
-          >
-            CUE {i + 1}
-          </Button>
+          <Tooltip key={i} title={c !== null ? `Jump to ${fmt(c)} (right-click to clear)` : `Set cue ${i + 1}`} arrow>
+            <IconButton
+              size="small"
+              onClick={() => toggleCue(i)}
+              onContextMenu={(e) => { e.preventDefault(); clearCue(i); }}
+              sx={{
+                width: 26, height: 26, fontSize: 11, fontWeight: 700,
+                color: c !== null ? "#fff" : "text.secondary",
+                bgcolor: c !== null ? color : "rgba(255,255,255,0.05)",
+                border: `1px solid ${c !== null ? color : "rgba(255,255,255,0.1)"}`,
+                borderRadius: 1,
+                "&:hover": { bgcolor: c !== null ? color : "rgba(255,255,255,0.1)", opacity: 0.85 },
+              }}
+            >
+              {i + 1}
+            </IconButton>
+          </Tooltip>
         ))}
       </Stack>
     </Paper>
