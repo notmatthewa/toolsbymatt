@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export interface PlayerControls {
   loadVideo: (youtubeUrl: string) => void;
@@ -219,7 +219,6 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
       volumeRef.current = vol;
       const video = videoRef.current;
       if (video) video.volume = vol / 100;
-      setState((s) => ({ ...s, volume: vol }));
     },
     [videoRef]
   );
@@ -240,6 +239,9 @@ export function useLocalPlayer(videoRef: React.RefObject<HTMLVideoElement | null
     };
   }, []);
 
-  const controls: PlayerControls = { loadVideo, play, pause, seekTo, setVolume, setSpeed };
+  const controls = useMemo<PlayerControls>(
+    () => ({ loadVideo, play, pause, seekTo, setVolume, setSpeed }),
+    [loadVideo, play, pause, seekTo, setVolume, setSpeed]
+  );
   return { state, controls };
 }

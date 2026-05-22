@@ -34,7 +34,19 @@ function fmt(s: number) {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-// Timeline with real waveform, loop handles, playhead, and volume indicator
+function extractVideoId(input: string): string | null {
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+    /^([a-zA-Z0-9_-]{11})$/,
+  ];
+  for (const p of patterns) {
+    const m = input.trim().match(p);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// Timeline with waveform, loop region handles, playhead, level meter
 function Timeline({
   currentTime,
   duration,
@@ -79,14 +91,14 @@ function Timeline({
       el.setPointerCapture(e.pointerId);
       const rect = el.getBoundingClientRect();
 
-      // Check loop handles first (within 10px)
+      // Check loop handles (within 12px)
       if (loopA !== null) {
         const ax = rect.left + (loopA / duration) * rect.width;
-        if (Math.abs(e.clientX - ax) < 10) { setDragging("loopA"); return; }
+        if (Math.abs(e.clientX - ax) < 12) { setDragging("loopA"); return; }
       }
       if (loopB !== null) {
         const bx = rect.left + (loopB / duration) * rect.width;
-        if (Math.abs(e.clientX - bx) < 10) { setDragging("loopB"); return; }
+        if (Math.abs(e.clientX - bx) < 12) { setDragging("loopB"); return; }
       }
 
       setDragging("seek");
@@ -112,14 +124,14 @@ function Timeline({
   const loopAPct = loopA !== null && duration ? (loopA / duration) * 100 : null;
   const loopBPct = loopB !== null && duration ? (loopB / duration) * 100 : null;
 
-  // Downsample waveform to a visible number of bars
-  const bars = 80;
-  const downsampled = waveform
-    ? Array.from({ length: bars }, (_, i) => {
-        const srcIdx = Math.floor((i / bars) * waveform.length);
-        const srcEnd = Math.floor(((i + 1) / bars) * waveform.length);
+  // Downsample waveform to visible bar count
+  const BARS = 100;
+  const bars = waveform
+    ? Array.from({ length: BARS }, (_, i) => {
+        const srcStart = Math.floor((i / BARS) * waveform.length);
+        const srcEnd = Math.floor(((i + 1) / BARS) * waveform.length);
         let max = 0;
-        for (let j = srcIdx; j < srcEnd && j < waveform.length; j++) {
+        for (let j = srcStart; j < srcEnd && j < waveform.length; j++) {
           if (waveform[j] > max) max = waveform[j];
         }
         return max;
@@ -135,13 +147,13 @@ function Timeline({
         onPointerUp={handlePointerUp}
         sx={{
           position: "relative",
-          height: 48,
-          bgcolor: "rgba(255,255,255,0.03)",
+          height: 56,
+          bgcolor: "rgba(255,255,255,0.02)",
           borderRadius: 1,
           overflow: "hidden",
           cursor: "pointer",
           border: "1px solid",
-          borderColor: "rgba(255,255,255,0.08)",
+          borderColor: "rgba(255,255,255,0.1)",
         }}
       >
         {/* Waveform bars */}
@@ -151,33 +163,32 @@ function Timeline({
             inset: 0,
             display: "flex",
             alignItems: "center",
-            gap: "1px",
-            px: "2px",
+            gap: "1.5px",
+            px: "3px",
           }}
         >
-          {Array.from({ length: bars }, (_, i) => {
-            const pct = (i / bars) * 100;
+          {Array.from({ length: BARS }, (_, i) => {
+            const pct = (i / BARS) * 100;
             const played = pct < progressPct;
-            const h = downsampled
-              ? Math.max(10, downsampled[i] * 95)
-              : 30 + Math.abs(Math.sin(i * 0.7) * 50 + Math.cos(i * 1.3) * 30);
+            const h = bars
+              ? Math.max(6, bars[i] * 98)
+              : 20 + Math.abs(Math.sin(i * 0.7) * 40 + Math.cos(i * 1.3) * 25);
             return (
               <Box
                 key={i}
                 sx={{
                   flex: 1,
-                  height: `${Math.min(h, 95)}%`,
-                  bgcolor: played ? color : "rgba(255,255,255,0.12)",
-                  borderRadius: "1px",
-                  transition: played ? "none" : "background-color 0.1s",
-                  opacity: played ? 0.85 : 0.35,
+                  height: `${Math.min(h, 98)}%`,
+                  bgcolor: played ? color : "rgba(255,255,255,0.15)",
+                  borderRadius: "2px",
+                  opacity: played ? 1 : 0.5,
                 }}
               />
             );
           })}
         </Box>
 
-        {/* Loop region */}
+        {/* Loop region overlay */}
         {loopAPct !== null && loopBPct !== null && (
           <Box
             sx={{
@@ -185,9 +196,7 @@ function Timeline({
               top: 0, bottom: 0,
               left: `${loopAPct}%`,
               width: `${loopBPct - loopAPct}%`,
-              bgcolor: looping ? `${color}22` : "rgba(255,255,255,0.05)",
-              borderLeft: `2px solid ${looping ? color : "rgba(255,255,255,0.3)"}`,
-              borderRight: `2px solid ${looping ? color : "rgba(255,255,255,0.3)"}`,
+              bgcolor: looping ? `${color}30` : "rgba(255,255,255,0.06)",
               pointerEvents: "none",
             }}
           />
@@ -195,22 +204,39 @@ function Timeline({
 
         {/* Loop handle A */}
         {loopAPct !== null && (
-          <Box sx={{
-            position: "absolute", top: 0, bottom: 0,
-            left: `${loopAPct}%`, width: 14, ml: "-7px",
-            cursor: "ew-resize", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
-          }}>
-            <Box sx={{ width: 4, height: 18, bgcolor: looping ? color : "rgba(255,255,255,0.5)", borderRadius: 1 }} />
+          <Box
+            sx={{
+              position: "absolute", top: 0, bottom: 0,
+              left: `${loopAPct}%`, width: 18, ml: "-9px",
+              cursor: "ew-resize", display: "flex", alignItems: "center",
+              justifyContent: "center", zIndex: 3,
+            }}
+          >
+            <Box sx={{
+              width: 6, height: "70%", borderRadius: 1,
+              bgcolor: looping ? color : "rgba(255,255,255,0.6)",
+              border: `1px solid ${looping ? color : "rgba(255,255,255,0.3)"}`,
+              boxShadow: looping ? `0 0 6px ${color}` : "none",
+            }} />
           </Box>
         )}
+
         {/* Loop handle B */}
         {loopBPct !== null && (
-          <Box sx={{
-            position: "absolute", top: 0, bottom: 0,
-            left: `${loopBPct}%`, width: 14, ml: "-7px",
-            cursor: "ew-resize", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3,
-          }}>
-            <Box sx={{ width: 4, height: 18, bgcolor: looping ? color : "rgba(255,255,255,0.5)", borderRadius: 1 }} />
+          <Box
+            sx={{
+              position: "absolute", top: 0, bottom: 0,
+              left: `${loopBPct}%`, width: 18, ml: "-9px",
+              cursor: "ew-resize", display: "flex", alignItems: "center",
+              justifyContent: "center", zIndex: 3,
+            }}
+          >
+            <Box sx={{
+              width: 6, height: "70%", borderRadius: 1,
+              bgcolor: looping ? color : "rgba(255,255,255,0.6)",
+              border: `1px solid ${looping ? color : "rgba(255,255,255,0.3)"}`,
+              boxShadow: looping ? `0 0 6px ${color}` : "none",
+            }} />
           </Box>
         )}
 
@@ -219,6 +245,7 @@ function Timeline({
           position: "absolute", top: 0, bottom: 0,
           left: `${progressPct}%`, width: 2,
           bgcolor: "#fff", zIndex: 4, pointerEvents: "none",
+          boxShadow: "0 0 4px rgba(255,255,255,0.5)",
         }} />
       </Box>
 
@@ -227,7 +254,6 @@ function Timeline({
         <Typography variant="caption" color="text.secondary" sx={{ fontSize: 11, minWidth: 32 }}>
           {fmt(currentTime)}
         </Typography>
-        {/* Volume level meter */}
         <LinearProgress
           variant="determinate"
           value={Math.min(audioLevel * 300, 100)}
@@ -260,26 +286,28 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
   const [looping, setLooping] = useState(false);
   const [cues, setCues] = useState<(number | null)[]>([null, null, null, null]);
   const loopRef = useRef({ looping, loopA, loopB });
+  const effectiveVolumeRef = useRef(effectiveVolume);
 
   useEffect(() => {
     loopRef.current = { looping, loopA, loopB };
   }, [looping, loopA, loopB]);
 
-  // Loop enforcement
+  useEffect(() => {
+    effectiveVolumeRef.current = effectiveVolume;
+    controls.setVolume(effectiveVolume);
+  }, [effectiveVolume]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Loop enforcement via ref (no deps on controls)
   useEffect(() => {
     const { looping, loopA, loopB } = loopRef.current;
     if (looping && loopA !== null && loopB !== null && state.currentTime >= loopB) {
       controls.seekTo(loopA);
     }
-  }, [state.currentTime, controls]);
-
-  // Apply effective volume
-  useEffect(() => {
-    controls.setVolume(effectiveVolume);
-  }, [effectiveVolume, controls]);
+  }, [state.currentTime]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = () => {
-    if (!urlInput.trim()) return;
+    const id = extractVideoId(urlInput);
+    if (!id) return;
     setLoopA(null);
     setLoopB(null);
     setLooping(false);
@@ -373,26 +401,18 @@ export default function Deck({ label, color, videoRef, state, controls, effectiv
           ref={videoRef}
           style={{
             position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
+            top: 0, left: 0, width: "100%", height: "100%",
             objectFit: "contain",
           }}
           playsInline
         />
-        {/* Loading overlay */}
         {state.loading && (
           <Box
             sx={{
-              position: "absolute",
-              inset: 0,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              bgcolor: "rgba(0,0,0,0.7)",
-              gap: 1,
+              position: "absolute", inset: 0,
+              display: "flex", flexDirection: "column",
+              alignItems: "center", justifyContent: "center",
+              bgcolor: "rgba(0,0,0,0.7)", gap: 1,
             }}
           >
             <CircularProgress size={32} sx={{ color }} />
